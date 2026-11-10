@@ -1,5 +1,7 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -29,6 +31,7 @@ import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
+import * as ServerConfig from "../config.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
@@ -155,8 +158,29 @@ function makeService(input: {
   readonly boards?: ReadonlyArray<GitHubBoardConfig>;
   /** The board store's keys; the service turns boards on and off in it. */
   readonly enabledBoards?: Set<string>;
+  /** The text of `playbooks.json`; no file when left out. */
+  readonly playbooks?: string;
+  /** The T3 home, for a test that edits `userdata/playbooks.json` between reads. */
+  readonly baseDir?: string;
 }) {
   const enabledBoards = input.enabledBoards ?? new Set<string>();
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const baseDir =
+      input.baseDir ?? (yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-service-" }));
+    if (input.playbooks !== undefined) {
+      yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
+      yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, input.playbooks);
+    }
+    return yield* makeServiceIn(baseDir, input, enabledBoards);
+  }).pipe(Effect.provide(NodeServices.layer));
+}
+
+function makeServiceIn(
+  baseDir: string,
+  input: Parameters<typeof makeService>[0],
+  enabledBoards: Set<string>,
+) {
   return IssueService.IssueService.pipe(
     Effect.provide(
       IssueService.layer.pipe(
@@ -198,6 +222,9 @@ function makeService(input: {
             ServerSettings.ServerSettingsService.layerTest({
               githubBoards: [...(input.boards ?? [])],
             }),
+            ServerConfig.layerTest(process.cwd(), baseDir).pipe(
+              Layer.provideMerge(NodeServices.layer),
+            ),
           ),
         ),
       ),
@@ -474,10 +501,11 @@ describe("IssueService", () => {
 
   it.effect("lists each board's issues under the project for their repository, or none", () =>
     Effect.gen(function* () {
-      const boardIssue = (key: string, scope: string) => ({
+      const boardIssue = (key: string, scope: string, status: string, assignee: string) => ({
         ...issue(key),
         scope,
-        status: "Ready",
+        status,
+        assignees: [{ login: assignee, name: null, avatarUrl: null }],
         blockers: [],
       });
       const forkOf = (id: string, upstream: string, origin: string) => {
@@ -491,7 +519,13 @@ describe("IssueService", () => {
         };
       };
       const asked: string[] = [];
+      let viewerReads = 0;
       const service = yield* makeService({
+        playbooks: JSON.stringify([
+          { name: "develop", rules: { status: ["Ready", "In progress"], assignee: "me" } },
+          { name: "ship", rules: { status: ["In review"] } },
+          { name: "other" },
+        ]),
         projects: [
           // Its origin is acme/web, but the project whose own repository is acme/web wins.
           forkOf("other-fork", "acme/other", "acme/web"),
@@ -509,13 +543,18 @@ describe("IssueService", () => {
         ],
         trackers: [
           fakeTracker({
+            getViewer: () =>
+              Effect.sync(() => {
+                viewerReads += 1;
+                return "Julius";
+              }),
             listBoard: (input) => {
               asked.push(`${input.host} ${input.owner}/${input.number} ${input.statusField}`);
               return input.number === 1
                 ? Effect.succeed([
-                    boardIssue("1", "Acme/Web"),
-                    boardIssue("2", "acme/api"),
-                    boardIssue("3", "me/app"),
+                    boardIssue("1", "Acme/Web", "Ready", "julius"),
+                    boardIssue("2", "acme/api", "In review", "julius"),
+                    boardIssue("3", "me/app", "Ready", "jessy"),
                   ])
                 : Effect.fail(
                     new IssueTrackerError({
@@ -532,8 +571,10 @@ describe("IssueService", () => {
 
       yield* service.setBoardEnabled({ owner: "Acme", number: 1, enabled: true });
       yield* service.setBoardEnabled({ owner: "acme", number: 2, enabled: true });
-      const { boards } = yield* service.board;
+      const { boards, playbookErrors } = yield* service.board;
 
+      expect(playbookErrors).toEqual([]);
+      expect(viewerReads).toBe(1);
       expect(asked.toSorted()).toEqual(["github.com acme/1 Status", "github.com acme/2 Stage"]);
       expect(boards).toHaveLength(3);
       expect(boards[0]).toMatchObject({ owner: "acme", number: 1, enabled: true, error: null });
@@ -543,11 +584,12 @@ describe("IssueService", () => {
           entry.key,
           entry.projectId,
           entry.projectTitle,
+          entry.playbook,
         ]),
       ).toEqual([
-        ["Acme/Web", "1", "web", "web"],
-        ["acme/api", "2", null, null],
-        ["me/app", "3", "app-fork", "app-fork"],
+        ["Acme/Web", "1", "web", "web", "develop"],
+        ["acme/api", "2", null, null, "ship"],
+        ["me/app", "3", "app-fork", "app-fork", "other"],
       ]);
       expect(boards[0]?.entries[0]).toMatchObject({ tracker: "github", host: "github.com" });
       expect(boards[1]).toEqual({
@@ -568,7 +610,7 @@ describe("IssueService", () => {
       });
 
       const unconfigured = yield* makeService({ projects: [], trackers: [fakeTracker()] });
-      expect(yield* unconfigured.board).toEqual({ boards: [] });
+      expect(yield* unconfigured.board).toEqual({ boards: [], playbookErrors: [] });
     }),
   );
 
@@ -610,6 +652,86 @@ describe("IssueService", () => {
       });
       expect([...enabledBoards]).toEqual([]);
     }),
+  );
+
+  it.effect("still lists the boards when playbooks.json has a mistake, and says what it is", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-service-" });
+      yield* fs.makeDirectory(`${baseDir}/userdata`);
+      let viewer: Effect.Effect<string, IssueTrackerError> = Effect.succeed("julius");
+      let viewerReads = 0;
+      const service = yield* makeService({
+        projects: [],
+        baseDir,
+        enabledBoards: new Set(["acme/1"]),
+        boards: [{ owner: "acme", number: 1, statusField: "Status" }],
+        trackers: [
+          fakeTracker({
+            getViewer: () => Effect.suspend(() => ((viewerReads += 1), viewer)),
+            listBoard: () =>
+              Effect.succeed([{ ...issue("1"), scope: "acme/web", status: "Ready", blockers: [] }]),
+          }),
+        ],
+      });
+      const read = (playbooks: string) =>
+        fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks).pipe(
+          Effect.andThen(service.board),
+          Effect.map(({ boards, playbookErrors }) => ({
+            playbooks: boards.flatMap((board) => board.entries.map((entry) => entry.playbook)),
+            playbookErrors,
+          })),
+        );
+
+      const broken = yield* read('[{ "name": "develop" ');
+      expect(broken.playbooks).toEqual([null]);
+      expect(broken.playbookErrors).toHaveLength(1);
+      expect(broken.playbookErrors[0]).toMatch(/^playbooks\.json is not valid JSON: /);
+
+      expect(
+        yield* read(
+          JSON.stringify([
+            { name: "develop", rules: { stauts: ["Ready"] } },
+            { name: "other", rules: { status: ["ready"] } },
+          ]),
+        ),
+      ).toEqual({
+        playbooks: ["other"],
+        playbookErrors: ["Playbook 1 (develop): Expected no excess property at rules.stauts"],
+      });
+      expect(viewerReads).toBe(0);
+
+      const assigned = JSON.stringify([
+        { name: "develop", rules: { assignee: "nobody" } },
+        { name: "other" },
+      ]);
+      expect(yield* read(assigned)).toEqual({ playbooks: ["develop"], playbookErrors: [] });
+      viewer = Effect.fail(
+        new IssueTrackerError({
+          tracker: GITHUB,
+          operation: "getViewer",
+          reason: "failed",
+          detail: "Bad credentials",
+        }),
+      );
+      expect(yield* read(assigned)).toEqual({
+        playbooks: [null],
+        playbookErrors: [
+          "Your GitHub account could not be read, so no playbook applies: Bad credentials",
+        ],
+      });
+      expect(viewerReads).toBe(2);
+
+      const unconfigured = yield* makeService({
+        projects: [],
+        trackers: [fakeTracker()],
+        playbooks: "[1]",
+      });
+      expect(yield* unconfigured.board).toEqual({
+        boards: [],
+        playbookErrors: ["Playbook 1: Expected object"],
+      });
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
 

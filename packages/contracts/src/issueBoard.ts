@@ -32,8 +32,37 @@ export const IssueBoardEntry = Schema.Struct({
   blockers: Schema.Array(IssueBoardBlocker),
   projectId: Schema.NullOr(ProjectId),
   projectTitle: Schema.NullOr(TrimmedNonEmptyString),
+  /** The first playbook in `playbooks.json` whose rules all match the issue, or none. */
+  playbook: Schema.NullOr(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed(null)),
+  ),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
+
+const PlaybookNames = Schema.Array(TrimmedNonEmptyString).check(Schema.isMinLength(1));
+
+/** Rules a board issue must all match; a rule left out matches every issue. */
+export const IssuePlaybookRules = Schema.Struct({
+  status: Schema.optionalKey(PlaybookNames),
+  /** `owner/name`. */
+  repository: Schema.optionalKey(PlaybookNames),
+  /** The issue has at least one of these labels. */
+  labels: Schema.optionalKey(PlaybookNames),
+  /** Relative to the GitHub account the server reads boards with. */
+  assignee: Schema.optionalKey(
+    Schema.Literals(["me", "meAlone", "meAndOthers", "othersOnly", "nobody"]),
+  ),
+  /** Whether the issue has an open blocker. */
+  blocked: Schema.optionalKey(Schema.Boolean),
+});
+export type IssuePlaybookRules = typeof IssuePlaybookRules.Type;
+
+/** One entry of `playbooks.json`, which lists playbooks in the order they are tried. */
+export const IssuePlaybook = Schema.Struct({
+  name: TrimmedNonEmptyString,
+  rules: IssuePlaybookRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+});
+export type IssuePlaybook = typeof IssuePlaybook.Type;
 
 export const IssueBoard = Schema.Struct({
   owner: TrimmedNonEmptyString,
@@ -49,6 +78,10 @@ export type IssueBoard = typeof IssueBoard.Type;
 
 export const IssueBoardResult = Schema.Struct({
   boards: Schema.Array(IssueBoard),
+  /** Mistakes in `playbooks.json`; an invalid playbook is left out and the rest still select. */
+  playbookErrors: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
 });
 export type IssueBoardResult = typeof IssueBoardResult.Type;
 

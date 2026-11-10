@@ -85,6 +85,11 @@ function BoardRowLines({ entry }: { entry: IssueBoardEntry }) {
                 ))}
               </span>
             ) : null}
+            {entry.playbook !== null ? (
+              <Badge variant="info" size="sm" title={`Playbook ${entry.playbook}`}>
+                {entry.playbook}
+              </Badge>
+            ) : null}
             <Badge variant="outline" size="sm">
               {entry.status ?? "No status"}
             </Badge>

@@ -4,8 +4,10 @@
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import {
   IssueOperationError,
   IssueTrackerKind,
@@ -43,6 +45,7 @@ import {
   type IssueTrackerApi,
 } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
+import * as ServerConfig from "../config.ts";
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -50,8 +53,16 @@ import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolv
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
 import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import { readBoards } from "./issueBoard.ts";
+import {
+  PLAYBOOKS_FILE,
+  needsViewer,
+  parsePlaybooks,
+  selectPlaybook,
+} from "./playbookSelection.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
+const GITHUB = IssueTrackerKind.make("github");
+const GITHUB_HOST = "github.com";
 const SCOPE_CONCURRENCY = 4;
 
 const interactive =
@@ -199,6 +210,10 @@ const make = Effect.gen(function* () {
   const bindings = yield* IssueTrackerBindings.IssueTrackerBindingsRepository;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const boardSources = yield* IssueBoardSources.IssueBoardSourcesRepository;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const config = yield* ServerConfig.ServerConfig;
+  const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
 
   // Read per resolution so a binding saved in Settings applies without a restart.
   const resolveStandaloneBinding = (
@@ -461,7 +476,21 @@ const make = Effect.gen(function* () {
       cause,
     });
 
-  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+  // Read on every board call, so an edit applies at the next refresh; a missing file is none.
+  const readPlaybooks = fileSystem.readFileString(playbooksPath).pipe(
+    Effect.map(parsePlaybooks),
+    Effect.catch((error) =>
+      Effect.succeed({
+        playbooks: [],
+        errors:
+          error.reason._tag === "NotFound"
+            ? []
+            : [`${PLAYBOOKS_FILE} could not be read: ${error.message}`],
+      }),
+    ),
+  );
+
+  const readBoardListing = Effect.gen(function* () {
     const boards = yield* readBoardSettings("board");
     if (boards.length === 0) return { boards: [] };
     const enabled = yield* boardSources.listEnabled.pipe(Effect.mapError(boardStoreError("board")));
@@ -481,9 +510,48 @@ const make = Effect.gen(function* () {
     return yield* readBoards({
       boards,
       enabled,
-      api: registry.get(IssueTrackerKind.make("github")),
+      api: registry.get(GITHUB),
       projects: projectScopes,
     });
+  });
+
+  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+    const listing = yield* readBoardListing;
+    const { playbooks, errors } = yield* readPlaybooks;
+    const hasEntries = listing.boards.some((candidate) => candidate.entries.length > 0);
+    let viewer: string | null = null;
+    if (hasEntries && needsViewer(playbooks)) {
+      const api = registry.get(GITHUB);
+      const read =
+        api === null
+          ? Effect.fail("GitHub cannot be read by this server.")
+          : api
+              .getViewer({ cwd: config.cwd, host: GITHUB_HOST })
+              .pipe(Effect.mapError((error) => error.detail.trim() || "No reason was given."));
+      const viewerRead = yield* Effect.result(read);
+      if (viewerRead._tag === "Failure") {
+        // An assignee rule cannot decide, and skipping only those playbooks would hand their
+        // issues to later ones.
+        return {
+          boards: listing.boards,
+          playbookErrors: [
+            ...errors,
+            `Your GitHub account could not be read, so no playbook applies: ${viewerRead.failure}`,
+          ],
+        };
+      }
+      viewer = viewerRead.success;
+    }
+    return {
+      boards: listing.boards.map((candidate) => ({
+        ...candidate,
+        entries: candidate.entries.map((entry) => ({
+          ...entry,
+          playbook: selectPlaybook(playbooks, entry, viewer),
+        })),
+      })),
+      playbookErrors: errors,
+    };
   }).pipe(Effect.withSpan("IssueService.board"));
 
   const setBoardEnabled: IssueService["Service"]["setBoardEnabled"] = Effect.fn(

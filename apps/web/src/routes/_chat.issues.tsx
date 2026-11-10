@@ -539,8 +539,19 @@ function IssuesRoute() {
   // Boards hold open issues only, and their read has no involvement or tracker filter.
   const boardSections: ReactNode =
     issuesSupported && search.status !== "closed"
-      ? boards.answers.flatMap(([environmentId, answer]) =>
-          answer.boards.map((board) => (
+      ? boards.answers.flatMap(([environmentId, answer]) => [
+          ...answer.playbookErrors.map((error) => (
+            <p
+              key={`${environmentId}:playbooks:${error}`}
+              className="px-3 text-sm text-destructive"
+            >
+              {capableEnvironments.length > 1 && environmentLabels.has(environmentId)
+                ? `${environmentLabels.get(environmentId)}: `
+                : null}
+              {error}
+            </p>
+          )),
+          ...answer.boards.map((board) => (
             <IssueBoardSection
               key={`${environmentId}:${board.owner}/${board.number}`}
               environmentId={environmentId}
@@ -557,7 +568,7 @@ function IssuesRoute() {
               onSelect={selectEntry}
             />
           )),
-        )
+        ])
       : null;
 
   const listBody: ReactNode = !issuesSupported ? (

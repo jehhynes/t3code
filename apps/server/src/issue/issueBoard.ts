@@ -4,7 +4,6 @@ import {
   IssueTrackerKind,
   type GitHubBoardConfig,
   type IssueBoard,
-  type IssueBoardResult,
   type ProjectId,
   type RepositoryOrigin,
 } from "@t3tools/contracts";
@@ -89,6 +88,7 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
               host: GITHUB_HOST,
               projectId: project?.id ?? null,
               projectTitle: project?.title ?? null,
+              playbook: null,
             };
           }),
         })),
@@ -99,5 +99,5 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
     },
     { concurrency: BOARD_CONCURRENCY },
   );
-  return { boards } satisfies IssueBoardResult;
+  return { boards };
 });
