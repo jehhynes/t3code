@@ -157,18 +157,16 @@ function IssueBoardSectionImpl({
   const setEnabled = useAtomCommand(issueEnvironment.setBoardEnabled, {
     label: "issue board enabled",
   });
-  // The command starts the board read before it resolves; the switch holds the requested state
-  // until that read settles, then shows the answer.
-  const boardRead = useAtomValue(issueEnvironment.board({ environmentId, input: {} }));
-  const [request, setRequest] = useState<{ enabled: boolean; sent: boolean } | null>(null);
-  if (request?.sent && !boardRead.waiting) setRequest(null);
+  // The server reads the boards again and publishes them before the command resolves, so the
+  // switch holds the requested state until then.
+  const [request, setRequest] = useState<{ enabled: boolean } | null>(null);
   const toggle = async (enabled: boolean) => {
-    setRequest({ enabled, sent: false });
+    setRequest({ enabled });
     const result = await setEnabled({
       environmentId,
       input: { owner: board.owner, number: board.number, enabled },
     });
-    setRequest(result._tag === "Failure" ? null : { enabled, sent: true });
+    setRequest(null);
     if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
       toastManager.add({
         type: "error",

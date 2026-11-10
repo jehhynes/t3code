@@ -7,15 +7,21 @@ import {
   type IssueListResult,
   type IssueRef,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
+import * as Stream from "effect/Stream";
 import { Atom, type AtomRegistry } from "effect/reactivity";
 
 import {
   createAtomCommandScheduler,
   createEnvironmentRpcCommand,
   createEnvironmentRpcQueryAtomFamily,
+  createEnvironmentRpcSubscriptionAtomFamily,
 } from "./runtime.ts";
 import type { EnvironmentRegistry } from "../connection/registry.ts";
+import { request } from "../rpc/client.ts";
 
 /** One row's identity across list pages and detail reads; hosts compare case-insensitively. */
 export function issueEntryKey(
@@ -63,6 +69,32 @@ export function prependIssueComments(
 }
 
 /**
+ * A server older than the board stream fails it; the boards are read instead on each of `reads`'
+ * values (the first at once), since such a server pushes nothing. Only the first read's failure
+ * ends the stream; a later one keeps the last answer.
+ */
+export function orBoardRead<A, E, R, R2>(
+  stream: Stream.Stream<A, E, R>,
+  read: (cause: Cause.Cause<E>) => Effect.Effect<A, E, R2>,
+  reads: Stream.Stream<unknown>,
+): Stream.Stream<A, E, R | R2> {
+  return stream.pipe(
+    Stream.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause)
+        ? Stream.failCause(cause)
+        : reads.pipe(
+            Stream.zipWithIndex,
+            Stream.mapEffect(([, index]) =>
+              index === 0 ? read(cause).pipe(Effect.asSome) : read(cause).pipe(Effect.option),
+            ),
+            Stream.filter(Option.isSome),
+            Stream.map((answer) => answer.value),
+          ),
+    ),
+  );
+}
+
+/**
  * Every read goes to a tracker API over the environment, so results are reused for a short while
  * and refreshed explicitly. Mutations run serially per environment: changes to one issue are
  * order-sensitive. Each confirmed write refreshes the detail it touched; the list is refreshed by
@@ -81,12 +113,42 @@ export function createIssueEnvironmentAtoms<R, E>(
     tag: WS_METHODS.issuesDetail,
     staleTimeMs: 30_000,
   });
-  /** The GitHub boards the server names in settings, each read whole while it is on. */
-  const board = createEnvironmentRpcQueryAtomFamily(runtime, {
+  /**
+   * The GitHub boards the server names in settings, as its latest read found them. Every read
+   * reaches here, the server's own timer included, and so does each Start from any client.
+   */
+  // Board fallbacks of older servers, read again after this client changes or reads the boards.
+  const boardChangedHere = new Set<() => void>();
+  const board = createEnvironmentRpcSubscriptionAtomFamily(runtime, {
     label: "environment-data:issues:board",
-    tag: WS_METHODS.issuesBoard,
-    staleTimeMs: 30_000,
+    tag: WS_METHODS.issuesSubscribeBoard,
+    transform: (stream) =>
+      orBoardRead(
+        stream,
+        (cause) =>
+          request(WS_METHODS.issuesBoard, {}).pipe(
+            // No connection to read over: fail as the stream did.
+            Effect.catchTags({ EnvironmentRpcUnavailableError: () => Effect.failCause(cause) }),
+          ),
+        Stream.callback<void>((queue) =>
+          Effect.acquireRelease(
+            Effect.sync(() => {
+              const nudge = () => void Queue.offerUnsafe(queue, undefined);
+              boardChangedHere.add(nudge);
+              nudge();
+              return nudge;
+            }),
+            (nudge) => Effect.sync(() => boardChangedHere.delete(nudge)),
+          ),
+        ),
+      ),
   });
+  // A current server pushes every change itself; only an older server's fallback listens. Its
+  // stream is not restarted from a command, which lost the stream's updates in UAT.
+  const readOlderServersAgain = () =>
+    Effect.sync(() => {
+      for (const nudge of boardChangedHere) nudge();
+    });
   const detailRef = ({ projectId, tracker, host, scope, key }: IssueRef): IssueRef => ({
     projectId,
     tracker,
@@ -105,22 +167,28 @@ export function createIssueEnvironmentAtoms<R, E>(
       staleTimeMs: 30_000,
     }),
     board,
-    /** Turns a board on or off, then reads the boards again, so a board turned on lists at once. */
+    /** Reads the boards now, or joins the read in flight; the result arrives through `board`. */
+    readBoard: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:read-board",
+      tag: WS_METHODS.issuesBoard,
+      scheduler: commandScheduler,
+      concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
+      onSuccess: readOlderServersAgain,
+    }),
+    /** Turns a board on or off; the server reads the boards and pushes them before it answers. */
     setBoardEnabled: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:issues:set-board-enabled",
       tag: WS_METHODS.issuesSetBoardEnabled,
       scheduler: commandScheduler,
       concurrency: serialPerEnvironment,
-      onSettled: ({ environmentId }, registry) =>
-        Effect.sync(() => registry.refresh(board({ environmentId, input: {} }))),
+      onSettled: readOlderServersAgain,
     }),
-    /** Starts a playbook's thread for a board issue, then reads the boards again. */
+    /** Starts a playbook's thread for a board issue; the server pushes the boards as they are. */
     startPlaybook: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:issues:start-playbook",
       tag: WS_METHODS.issuesStartPlaybook,
       scheduler: commandScheduler,
-      onSettled: ({ environmentId }, registry) =>
-        Effect.sync(() => registry.refresh(board({ environmentId, input: {} }))),
+      onSettled: readOlderServersAgain,
     }),
     /**
      * A continuation of the listing, run as a command rather than read as a query: a page is

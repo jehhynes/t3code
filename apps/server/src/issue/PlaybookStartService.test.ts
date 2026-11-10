@@ -30,6 +30,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as IssueService from "./IssueService.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
 
 const projectId = ProjectId.make("web");
@@ -93,6 +94,8 @@ function harness<A, E>(
     readonly launched: ReadonlyArray<ThreadLaunchService.ThreadLaunchInput>;
     readonly linked: ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>;
     readonly sent: ReadonlyArray<ThreadManagement.ThreadManagementSendInput>;
+    /** How many times the board listing was published again. */
+    readonly refreshed: () => number;
     /** The issue's entry as stored now. */
     readonly stored: Effect.Effect<
       IssuePlaybookEntries.PlaybookEntryRow | undefined,
@@ -103,6 +106,7 @@ function harness<A, E>(
   const launched: Array<ThreadLaunchService.ThreadLaunchInput> = [];
   const linked: Array<ThreadIssueService.LinkThreadIssueInput> = [];
   const sent: Array<ThreadManagement.ThreadManagementSendInput> = [];
+  let refreshed = 0;
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-playbook-start-" });
@@ -126,6 +130,7 @@ function harness<A, E>(
         launched,
         linked,
         sent,
+        refreshed: () => refreshed,
         stored: store.list.pipe(Effect.map((rows) => rows.get(issueKey))),
       });
     }).pipe(
@@ -192,6 +197,9 @@ function harness<A, E>(
                 ),
               }),
               IssuePlaybookEntries.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
+              Layer.mock(IssueService.IssueService)({
+                refreshWaiting: Effect.sync(() => void (refreshed += 1)),
+              }),
               Layer.succeed(
                 SecureRandom.SecureRandom,
                 SecureRandom.make((size) => new Uint8Array(size).fill(7)),
@@ -219,9 +227,12 @@ function start(input: Options & { readonly playbook: string }) {
 describe("PlaybookStartService.start", () => {
   it.effect("launches with the playbook's settings and prompt, then links the issue", () =>
     Effect.gen(function* () {
-      const { result, launched, linked, sent, stored } = yield* start({ playbook: "Develop" });
+      const { result, launched, linked, sent, stored, refreshed } = yield* start({
+        playbook: "Develop",
+      });
 
       expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(refreshed()).toBe(1);
       expect(sent).toEqual([]);
       expect(stored?.startedBy).toBe(launched[0]?.commandId);
       expect(launched).toHaveLength(1);
@@ -302,7 +313,7 @@ describe("PlaybookStartService.start", () => {
     "refuses $name with its cause, links nothing and leaves the entry as it was",
     ({ input, detail }) =>
       Effect.gen(function* () {
-        const { result, linked, sent, stored } = yield* start(input);
+        const { result, linked, sent, stored, refreshed } = yield* start(input);
 
         expect(result).toMatchObject({
           _tag: "Failure",
@@ -313,6 +324,8 @@ describe("PlaybookStartService.start", () => {
         expect(stored?.startedBy).toBe(
           input.waitingWith === null ? "issue-playbook:earlier" : null,
         );
+        // Only a Start that claimed the entry changed what the listing shows.
+        expect(refreshed()).toBe("launch" in input ? 1 : 0);
       }),
   );
 

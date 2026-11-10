@@ -1,18 +1,23 @@
 // A project bound to a standalone tracker (Linear) in settings lists it beside its git host's.
 // References outside the project's canonical repository may be read on the same host,
 // but every write must pass through requireWritable.
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import {
   IssueOperationError,
   IssueTrackerKind,
   IssueUnavailableError,
+  type IssueBoard,
   type IssueBoardResult,
   type IssueBoardSetEnabledInput,
   type IssueCandidates,
@@ -65,6 +70,8 @@ import {
 } from "./playbookSelection.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
+/** How old a board read may be when a client subscribes, as the page's query once allowed. */
+const BOARD_FRESH_MILLIS = 30_000;
 const GITHUB = IssueTrackerKind.make("github");
 const GITHUB_HOST = "github.com";
 const SCOPE_CONCURRENCY = 4;
@@ -177,8 +184,17 @@ export class IssueService extends Context.Service<
   IssueService,
   {
     readonly list: (input: IssueListInput) => Effect.Effect<IssueListResult, IssueError>;
-    /** Every open issue on each GitHub board named in settings, with its project or none. */
+    /**
+     * Every open issue on each GitHub board named in settings, with its project or none. A call
+     * while a read runs shares that read rather than starting another.
+     */
     readonly board: Effect.Effect<IssueBoardResult, IssueError>;
+    /** The latest board result, then each later one; reads the boards first when none exists. */
+    readonly subscribeBoard: Stream.Stream<IssueBoardResult, IssueError>;
+    /** Each board result as it is published, from any read; never reads by itself. */
+    readonly boardChanges: Stream.Stream<IssueBoardResult>;
+    /** Publishes the latest result again with which issues wait and have threads now. */
+    readonly refreshWaiting: Effect.Effect<void, IssueError>;
     /** Turns a board that settings name on or off; the server keeps this, not settings. */
     readonly setBoardEnabled: (input: IssueBoardSetEnabledInput) => Effect.Effect<void, IssueError>;
     readonly detail: (input: IssueRef) => Effect.Effect<IssueDetail, IssueError>;
@@ -486,7 +502,6 @@ const make = Effect.gen(function* () {
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
-  const boardReads = yield* Semaphore.make(1);
   const readBoardListing = Effect.gen(function* () {
     const boards = yield* readBoardSettings("board");
     if (boards.length === 0) return { boards: [] };
@@ -512,22 +527,60 @@ const make = Effect.gen(function* () {
     });
   });
 
-  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+  const entriesError = (cause: unknown) =>
+    new IssueOperationError({
+      operation: "board",
+      detail: "Which issues wait for Start could not be read or saved.",
+      cause,
+    });
+  const readOpenThreads = threadLinks.listOpen.pipe(
+    Effect.mapError(
+      (cause) =>
+        new IssueOperationError({
+          operation: "board",
+          detail: "Which issues have an open thread could not be read.",
+          cause,
+        }),
+    ),
+  );
+  /** Each entry's open thread and the playbook it waits with, from the records as they are. */
+  const withThreads = (
+    boards: ReadonlyArray<IssueBoard>,
+    open: ReadonlyMap<string, IssueThreadLinks.OpenIssueThread>,
+    rows: ReadonlyMap<string, IssuePlaybookEntries.PlaybookEntryRow>,
+  ): ReadonlyArray<IssueBoard> =>
+    boards.map((candidate) => {
+      const boardKey = IssueBoardSources.boardSourceKey(candidate);
+      return {
+        ...candidate,
+        entries: candidate.entries.map((entry) => {
+          const key = IssueThreadLinks.issueThreadKey(entry);
+          const row = rows.get(key);
+          return {
+            ...entry,
+            hasOpenThread: open.has(key),
+            // Only on the board whose read decided it, so Start takes that board's fields.
+            waitingPlaybook: row?.board === boardKey ? waitingPlaybook(row) : null,
+          };
+        }),
+      };
+    });
+
+  // Fork-only (jehhynes/t3code#10): the timer and every client share one read at a time, and
+  // each result is published, so a client sees a read it did not ask for.
+  const latestBoard = yield* SubscriptionRef.make<IssueBoardResult | null>(null);
+  // When the latest result's boards were read from GitHub; a `refreshWaiting` publish keeps it.
+  let latestReadAt = 0;
+  // Orders the local half of a read against `refreshWaiting`, without waiting on GitHub.
+  const publishing = yield* Semaphore.make(1);
+  const serviceScope = yield* Effect.scope;
+  let reading: Deferred.Deferred<IssueBoardResult, IssueError> | undefined;
+
+  const readBoard = Effect.gen(function* () {
     const listing = yield* readBoardListing;
+    const readAt = yield* Clock.currentTimeMillis;
     const { playbooks, errors } = yield* readPlaybooks;
     const hasEntries = listing.boards.some((candidate) => candidate.entries.length > 0);
-    const open = hasEntries
-      ? yield* threadLinks.listOpen.pipe(
-          Effect.mapError(
-            (cause) =>
-              new IssueOperationError({
-                operation: "board",
-                detail: "Which issues have an open thread could not be read.",
-                cause,
-              }),
-          ),
-        )
-      : new Map<string, IssueThreadLinks.OpenIssueThread>();
     let viewer: string | null = null;
     let viewerError: string | null = null;
     if (hasEntries && needsViewer(playbooks)) {
@@ -548,57 +601,88 @@ const make = Effect.gen(function* () {
       }
     }
     const playbookErrors = viewerError === null ? errors : [...errors, viewerError];
-    const boards = listing.boards.map((candidate) => ({
+    const selected = listing.boards.map((candidate) => ({
       ...candidate,
       entries: candidate.entries.map((entry) => ({
         ...entry,
-        hasOpenThread: open.has(IssueThreadLinks.issueThreadKey(entry)),
         playbook: viewerError === null ? selectPlaybook(playbooks, entry, viewer) : null,
       })),
     }));
 
-    // Entries change only while every playbook can select; otherwise they read as they were.
-    const decides = boards.some((candidate) => candidate.enabled && candidate.error === null);
-    const rows = !decides
-      ? new Map<string, IssuePlaybookEntries.PlaybookEntryRow>()
-      : yield* (
-          playbookErrors.length === 0
-            ? playbookEntries.reconcile((current) =>
-                reconcilePlaybookEntries({ rows: current, boards }),
-              )
-            : playbookEntries.list
-        ).pipe(
-          Effect.mapError(
-            (cause) =>
-              new IssueOperationError({
-                operation: "board",
-                detail: "Which issues wait for Start could not be read or saved.",
-                cause,
-              }),
-          ),
-        );
-    return {
-      boards: boards.map((candidate) => {
-        const boardKey = IssueBoardSources.boardSourceKey(candidate);
-        return {
-          ...candidate,
-          entries: candidate.entries.map((entry) => {
-            const row = rows.get(IssueThreadLinks.issueThreadKey(entry));
-            // Only on the board whose read decided it, so Start takes that board's fields.
-            return {
-              ...entry,
-              waitingPlaybook: row?.board === boardKey ? waitingPlaybook(row) : null,
-            };
-          }),
-        };
-      }),
-      playbookErrors,
-    };
-  }).pipe(
-    // One read at a time, so an older read never applies after a newer one.
-    boardReads.withPermits(1),
-    Effect.withSpan("IssueService.board"),
+    return yield* Effect.gen(function* () {
+      const open = hasEntries
+        ? yield* readOpenThreads
+        : new Map<string, IssueThreadLinks.OpenIssueThread>();
+      const boards = selected.map((candidate) => ({
+        ...candidate,
+        entries: candidate.entries.map((entry) => ({
+          ...entry,
+          hasOpenThread: open.has(IssueThreadLinks.issueThreadKey(entry)),
+        })),
+      }));
+      // Entries change only while every playbook can select; otherwise they read as they were.
+      const decides = boards.some((candidate) => candidate.enabled && candidate.error === null);
+      const rows = !decides
+        ? new Map<string, IssuePlaybookEntries.PlaybookEntryRow>()
+        : yield* (
+            playbookErrors.length === 0
+              ? playbookEntries.reconcile((current) =>
+                  reconcilePlaybookEntries({ rows: current, boards }),
+                )
+              : playbookEntries.list
+          ).pipe(Effect.mapError(entriesError));
+      const result: IssueBoardResult = { boards: withThreads(boards, open, rows), playbookErrors };
+      latestReadAt = readAt;
+      yield* SubscriptionRef.set(latestBoard, result);
+      return result;
+    }).pipe(publishing.withPermits(1));
+  });
+
+  const board: IssueService["Service"]["board"] = Effect.suspend(() => {
+    if (reading !== undefined) return Deferred.await(reading);
+    const pending = Deferred.makeUnsafe<IssueBoardResult, IssueError>();
+    reading = pending;
+    // Forked, so a caller that goes away does not cancel a read others wait on.
+    return readBoard.pipe(
+      Effect.onExit((exit) =>
+        Effect.sync(() => {
+          reading = undefined;
+          Deferred.doneUnsafe(pending, exit);
+        }),
+      ),
+      Effect.forkIn(serviceScope),
+      Effect.andThen(Deferred.await(pending)),
+    );
+  }).pipe(Effect.withSpan("IssueService.board"));
+
+  const boardChanges: IssueService["Service"]["boardChanges"] = SubscriptionRef.changes(
+    latestBoard,
+  ).pipe(Stream.filter((result): result is IssueBoardResult => result !== null));
+
+  // A subscriber gets the latest result at once; when its read is older than a page's own
+  // freshness, the boards are read again (or the read in flight joined) and the result pushed.
+  const subscribeBoard: IssueService["Service"]["subscribeBoard"] = Stream.unwrap(
+    Effect.gen(function* () {
+      const latest = yield* SubscriptionRef.get(latestBoard);
+      if (latest === null) {
+        yield* board;
+      } else if ((yield* Clock.currentTimeMillis) - latestReadAt > BOARD_FRESH_MILLIS) {
+        yield* board.pipe(Effect.ignoreCause({ log: true }), Effect.forkIn(serviceScope));
+      }
+      return boardChanges;
+    }),
   );
+
+  const refreshWaiting: IssueService["Service"]["refreshWaiting"] = Effect.gen(function* () {
+    const latest = yield* SubscriptionRef.get(latestBoard);
+    if (latest === null) return;
+    const open = yield* readOpenThreads;
+    const rows = yield* playbookEntries.list.pipe(Effect.mapError(entriesError));
+    yield* SubscriptionRef.set(latestBoard, {
+      ...latest,
+      boards: withThreads(latest.boards, open, rows),
+    });
+  }).pipe(publishing.withPermits(1), Effect.withSpan("IssueService.refreshWaiting"));
 
   const setBoardEnabled: IssueService["Service"]["setBoardEnabled"] = Effect.fn(
     "IssueService.setBoardEnabled",
@@ -616,6 +700,11 @@ const make = Effect.gen(function* () {
     yield* boardSources
       .set({ owner: input.owner, number: input.number, enabled: input.enabled, at })
       .pipe(Effect.mapError(boardStoreError("setBoardEnabled")));
+    // A read already running began before the switch, so read again once it ends. Answering
+    // after the read has published lets the client wait for it without reading itself.
+    yield* Effect.suspend(() =>
+      reading === undefined ? Effect.void : Deferred.await(reading),
+    ).pipe(Effect.ignore, Effect.andThen(board));
   });
 
   const detail: IssueService["Service"]["detail"] = (input) =>
@@ -842,6 +931,9 @@ const make = Effect.gen(function* () {
   return IssueService.of({
     list,
     board,
+    subscribeBoard,
+    boardChanges,
+    refreshWaiting,
     setBoardEnabled,
     detail: traced("detail", detail),
     comments: traced("comments", comments),

@@ -6,6 +6,7 @@ import type {
   IssueListResult,
 } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
+import { runAtomCommand } from "@t3tools/client-runtime/state/runtime";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
 
@@ -71,19 +72,26 @@ export function useIssueList(targets: ReadonlyArray<IssueListTarget>): MergedIss
   return { ...view, refresh };
 }
 
+// Board reads this page asked for that have not answered yet; their results arrive by `board`.
+const boardReadsInFlight = Atom.make(0).pipe(
+  Atom.keepAlive,
+  Atom.withLabel("web-issues:boards:reads-in-flight"),
+);
+
 /**
- * Each environment's GitHub boards, read across every connected environment as the listing is.
- * An environment whose read fails shows no boards; a board that cannot be read says why itself.
+ * Each environment's GitHub boards as its server last read them, across every connected
+ * environment as the listing is. An environment whose stream fails shows no boards; a board that
+ * cannot be read says why itself.
  */
 const mergedIssueBoardsFamily = Atom.family((key: string) =>
   Atom.make((get) => {
     const environmentIds = JSON.parse(key) as ReadonlyArray<EnvironmentId>;
     const answers: Array<readonly [EnvironmentId, IssueBoardResult]> = [];
-    let isPending = false;
+    let isPending = get(boardReadsInFlight) > 0;
     for (const environmentId of environmentIds) {
       const result = get(issueEnvironment.board({ environmentId, input: {} }));
-      isPending ||= result.waiting;
       const value = Option.getOrNull(AsyncResult.value(result));
+      isPending ||= value === null && result._tag !== "Failure";
       if (value !== null) answers.push([environmentId, value]);
     }
     return { answers, isPending };
@@ -102,7 +110,14 @@ export function useIssueBoards(environmentIds: ReadonlyArray<EnvironmentId>) {
   );
   const refresh = () => {
     for (const environmentId of JSON.parse(key) as ReadonlyArray<EnvironmentId>) {
-      appAtomRegistry.refresh(issueEnvironment.board({ environmentId, input: {} }));
+      appAtomRegistry.update(boardReadsInFlight, (count) => count + 1);
+      // A failed read keeps the last result, as a failed refresh of the listing does.
+      void runAtomCommand(
+        appAtomRegistry,
+        issueEnvironment.readBoard,
+        { environmentId, input: {} },
+        { label: "issue board read", reportFailure: false, reportDefect: true },
+      ).finally(() => appAtomRegistry.update(boardReadsInFlight, (count) => count - 1));
     }
   };
   return { ...view, refresh };

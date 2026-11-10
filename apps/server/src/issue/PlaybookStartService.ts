@@ -33,6 +33,7 @@ import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as IssueService from "./IssueService.ts";
 import { renderPlaybookPrompt } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
@@ -78,6 +79,7 @@ const make = Effect.gen(function* () {
   const entries = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const random = yield* SecureRandom.SecureRandom;
+  const issues = yield* IssueService.IssueService;
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
 
   const fail = (detail: string, cause?: unknown) =>
@@ -228,17 +230,24 @@ const make = Effect.gen(function* () {
                   `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
                 ),
               ),
-        // A Start that fails or is interrupted leaves the issue waiting.
+        // A Start that fails or is interrupted leaves the issue waiting. Either way every client
+        // is shown the entry as it now is before Start answers.
         (claimed, exit) =>
-          claimed && Exit.isFailure(exit)
-            ? entries
-                .release(claim)
-                .pipe(
-                  Effect.catchCause((cause) =>
-                    Effect.logError("A failed Start left its issue started", { ...claim, cause }),
-                  ),
-                )
-            : Effect.void,
+          !claimed
+            ? Effect.void
+            : (Exit.isFailure(exit)
+                ? entries
+                    .release(claim)
+                    .pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logError("A failed Start left its issue started", {
+                          ...claim,
+                          cause,
+                        }),
+                      ),
+                    )
+                : Effect.void
+              ).pipe(Effect.andThen(issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true })))),
       );
     },
   );

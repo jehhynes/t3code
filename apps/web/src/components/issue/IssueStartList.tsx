@@ -62,14 +62,12 @@ function WaitingRow({
 export function IssueStartList({
   answers,
   query,
-  boardsPending,
   environmentLabels,
 }: {
+  /** The latest board answers; a new array arrives with each answer the server publishes. */
   answers: ReadonlyArray<readonly [EnvironmentId, IssueBoardResult]>;
   /** Narrows rows by title or key, as the boards are narrowed. */
   query: string;
-  /** Whether a board read is in flight; a started issue stays hidden until it settles. */
-  boardsPending: boolean;
   /** Each environment's label, where the page spans more than one. */
   environmentLabels: ReadonlyMap<EnvironmentId, string> | null;
 }) {
@@ -77,15 +75,22 @@ export function IssueStartList({
     label: "issue playbook start",
   });
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
-  // The command reads the boards again before it resolves; a started issue stays hidden until
-  // that read settles and no longer lists it.
-  const [started, setStarted] = useState<{ keys: ReadonlySet<string>; sent: boolean } | null>(null);
-  if (started?.sent && !boardsPending) setStarted(null);
+  // The server publishes the boards again after a Start; a started issue stays hidden while its
+  // environment still shows the answer it was started from.
+  const [started, setStarted] = useState<
+    ReadonlyMap<string, { environmentId: EnvironmentId; answer: IssueBoardResult }>
+  >(new Map());
+  const answerOf = (environmentId: EnvironmentId) =>
+    answers.find(([candidate]) => candidate === environmentId)?.[1];
+  const stillHidden = [...started].filter(
+    ([, { environmentId, answer }]) => answerOf(environmentId) === answer,
+  );
+  if (stillHidden.length !== started.size) setStarted(new Map(stillHidden));
 
   const needle = query.toLowerCase();
   const issues = waitingIssues(answers).filter(
     (issue) =>
-      !started?.keys.has(waitingIssueKey(issue)) &&
+      !started.has(waitingIssueKey(issue)) &&
       (needle.length === 0 ||
         issue.entry.title.toLowerCase().includes(needle) ||
         issue.entry.displayKey.toLowerCase().includes(needle)),
@@ -101,7 +106,11 @@ export function IssueStartList({
     });
     setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
     if (result._tag === "Success") {
-      setStarted((current) => ({ keys: new Set([...(current?.keys ?? []), key]), sent: true }));
+      const answer = answerOf(issue.environmentId);
+      if (answer !== undefined) {
+        const environmentId = issue.environmentId;
+        setStarted((current) => new Map(current).set(key, { environmentId, answer }));
+      }
       return;
     }
     if (!isAtomCommandInterrupted(result)) {

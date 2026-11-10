@@ -1409,6 +1409,7 @@ const layerWsIssuesRpc = ServerWsIssuesRpcGroup.toLayer(
     return ServerWsIssuesRpcGroup.of({
       [WS_METHODS.issuesList]: (input) => issues.list(input),
       [WS_METHODS.issuesBoard]: () => issues.board,
+      [WS_METHODS.issuesSubscribeBoard]: () => issues.subscribeBoard,
       [WS_METHODS.issuesSetBoardEnabled]: (input) => issues.setBoardEnabled(input),
       [WS_METHODS.issuesStartPlaybook]: (input) => playbookStarts.start(input),
       [WS_METHODS.issuesDetail]: (input) => issues.detail(input),

@@ -630,6 +630,7 @@ export const WS_METHODS = {
   // Issue tracking methods
   issuesList: "issues.list",
   issuesBoard: "issues.board",
+  issuesSubscribeBoard: "issues.subscribeBoard",
   issuesSetBoardEnabled: "issues.setBoardEnabled",
   issuesStartPlaybook: "issues.startPlaybook",
   issuesDetail: "issues.detail",
@@ -1304,6 +1305,14 @@ const WsIssuesBoardRpc = Rpc.make(WS_METHODS.issuesBoard, {
   payload: Schema.Struct({}),
   success: IssueBoardResult,
   error: IssueRpcError,
+});
+
+/** The latest board result and each later one, from any read, the server's timer included. */
+const WsIssuesSubscribeBoardRpc = Rpc.make(WS_METHODS.issuesSubscribeBoard, {
+  payload: Schema.Struct({}),
+  success: IssueBoardResult,
+  error: IssueRpcError,
+  stream: true,
 });
 
 const WsIssuesSetBoardEnabledRpc = Rpc.make(WS_METHODS.issuesSetBoardEnabled, {
@@ -2231,6 +2240,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesBoardRpc,
+  WsIssuesSubscribeBoardRpc,
   WsIssuesSetBoardEnabledRpc,
   WsIssuesStartPlaybookRpc,
   WsIssuesDetailRpc,

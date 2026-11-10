@@ -1,10 +1,13 @@
 import type { IssueComment, IssueListEntry, IssueTrackerKind, ProjectId } from "@t3tools/contracts";
-import { describe, expect, it } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Stream from "effect/Stream";
+import { describe, expect, it } from "@effect/vitest";
 
 import {
   issueEntryKey,
   mergeIssueListErrors,
   mergeIssueListPage,
+  orBoardRead,
   prependIssueComments,
 } from "./issues.ts";
 
@@ -89,4 +92,34 @@ describe("prependIssueComments", () => {
     const older = [comment("c1"), comment("c2"), comment("c3")];
     expect(prependIssueComments(current, older).map((c) => c.id)).toEqual(["c1", "c2", "c3", "c4"]);
   });
+});
+
+describe("orBoardRead", () => {
+  it.effect(
+    "reads the boards on each nudge when the board stream fails, as on a server without it",
+    () =>
+      Effect.gen(function* () {
+        let reads = 0;
+        const read = () =>
+          Effect.suspend(() => {
+            reads += 1;
+            return reads === 2 ? Effect.fail("offline") : Effect.succeed(`read ${reads}`);
+          });
+        // The first value triggers the first read; a later read that fails keeps the stream.
+        const nudges = Stream.make("open", "toggle", "start");
+        expect([
+          ...(yield* Stream.runCollect(orBoardRead(Stream.fail("unknown method"), read, nudges))),
+        ]).toEqual(["read 1", "read 3"]);
+        expect(
+          yield* Stream.runCollect(
+            orBoardRead(Stream.fail("unknown method"), () => Effect.fail("offline"), nudges),
+          ).pipe(Effect.flip),
+        ).toBe("offline");
+        // A current server's stream is never read again, whatever the nudges.
+        expect([
+          ...(yield* Stream.runCollect(orBoardRead(Stream.make("pushed", "again"), read, nudges))),
+        ]).toEqual(["pushed", "again"]);
+        expect(reads).toBe(3);
+      }),
+  );
 });

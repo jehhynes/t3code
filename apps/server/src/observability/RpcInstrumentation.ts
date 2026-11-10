@@ -142,6 +142,7 @@ const RPC_AGGREGATES = {
   [WS_METHODS.pullRequestsSetLabels]: "pull-requests",
   [WS_METHODS.issuesList]: "issues",
   [WS_METHODS.issuesBoard]: "issues",
+  [WS_METHODS.issuesSubscribeBoard]: "issues",
   [WS_METHODS.issuesSetBoardEnabled]: "issues",
   [WS_METHODS.issuesStartPlaybook]: "issues",
   [WS_METHODS.issuesDetail]: "issues",

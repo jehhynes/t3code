@@ -545,7 +545,6 @@ function IssuesRoute() {
             key="waiting"
             answers={boards.answers}
             query={debouncedQuery}
-            boardsPending={boards.isPending}
             environmentLabels={capableEnvironments.length > 1 ? environmentLabels : null}
           />,
           ...boards.answers.flatMap(([environmentId, answer]) => [
