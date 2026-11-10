@@ -1,4 +1,4 @@
-// Fork-only: which board issues wait for Start (jehhynes/t3code#6).
+// Fork-only: which board issues wait for Start (jehhynes/t3code#6, #7).
 import type { EnvironmentId, IssueBoardEntry, IssueBoardResult } from "@t3tools/contracts";
 
 export interface WaitingIssue {
@@ -12,8 +12,8 @@ export function waitingIssueKey(issue: WaitingIssue): string {
 }
 
 /**
- * Each issue a playbook selected with no open thread, newest updated first. An issue on two boards
- * is listed once, as the first board in settings order lists it.
+ * Each issue waiting for Start, with the playbook it waits with, newest updated first. An issue on
+ * two boards is listed once, as the first board in settings order lists it.
  */
 export function waitingIssues(
   answers: ReadonlyArray<readonly [EnvironmentId, IssueBoardResult]>,
@@ -22,8 +22,15 @@ export function waitingIssues(
   for (const [environmentId, answer] of answers) {
     for (const board of answer.boards) {
       for (const entry of board.entries) {
-        const { playbook } = entry;
-        if (playbook === null || entry.hasOpenThread) continue;
+        // A server older than #7 sends no waitingPlaybook and listed each selected issue that had
+        // no open thread.
+        const playbook =
+          entry.waitingPlaybook === undefined
+            ? entry.hasOpenThread
+              ? null
+              : entry.playbook
+            : entry.waitingPlaybook;
+        if (playbook === null) continue;
         const issue = { environmentId, entry: { ...entry, playbook } };
         const key = waitingIssueKey(issue);
         if (!waiting.has(key)) waiting.set(key, issue);

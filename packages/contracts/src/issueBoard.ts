@@ -40,6 +40,11 @@ export const IssueBoardEntry = Schema.Struct({
   ),
   /** Whether a thread linked to the issue is neither settled, archived nor deleted. */
   hasOpenThread: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  /**
+   * The playbook the issue waits for Start with, or none: an issue waits once each time it enters
+   * a playbook's selection, until it is started or leaves. Absent from a server older than this.
+   */
+  waitingPlaybook: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 

@@ -85,19 +85,33 @@ field with no value, such as an issue with no labels, is left empty.
 
 ## Start an issue
 
-Above the boards, **Waiting to start** lists every board issue that a playbook picks and that has
-no open thread, with its playbook. An open thread is one linked to the issue that is not settled,
-archived or deleted. An issue on two boards is listed once, with the playbook its first board in
-`settings.json` gives it.
+Above the boards, **Waiting to start** lists the board issues waiting for you to start them, each
+with its playbook. An issue waits once each time it enters a playbook's selection: from when the
+Issues page first reads it there until you start it or it leaves that selection.
 
-Press **Start** to launch the playbook's thread in the issue's project, in the project's own
-folder. The thread appears in the sidebar, linked to the issue, and the issue leaves the list. An
-issue whose repository has no T3 Code project shows that instead of Start. A Start that fails says
-why, and the issue stays so you can press Start again; a thread that starts and then fails shows
-its failure in the thread, as any thread does.
+- Once started, it does not wait again while it stays in that selection, whatever happens to its
+  thread: settling the thread does not list it again.
+- When it moves to another playbook's selection, such as from In progress to In review, it waits
+  with that playbook.
+- When it leaves every selection and later comes back, it waits again.
+- An issue that already has an open thread when T3 Code first reads it counts as started. An open
+  thread is one linked to the issue that is not settled, archived or deleted.
+- An issue on two boards is listed once, with the playbook of the first board in `settings.json`
+  that picks it.
 
-Nothing starts on its own yet. When you settle an issue's thread while a playbook still picks the
-issue, it is listed again. Starting needs the permission to run threads on that environment.
+Press **Start** to run the playbook. When the issue has an open thread, the playbook's prompt is
+sent to that thread, after its running turn ends if one is running, so the work keeps its context;
+the thread keeps its own model and modes. Otherwise Start launches the playbook's thread in the
+issue's project, in the project's own folder, linked to the issue. Either way the issue leaves the
+list. An issue whose repository has no T3 Code project shows that instead of Start. A Start that
+fails says why, and the issue stays so you can press Start again; a thread that starts and then
+fails shows its failure in the thread, as any thread does.
+
+Issues enter and leave selections only when the Issues page reads the boards, and only while T3
+Code can tell: a board that is off or cannot be read keeps its issues as they were, and so does
+every issue while `playbooks.json` has a mistake or your GitHub account cannot be read.
+
+Nothing starts on its own yet. Starting needs the permission to run threads on that environment.
 
 ## Mistakes
 
@@ -110,3 +124,4 @@ Your settings are untouched.
 - A file that is not valid JSON, or not a list, gives no issue a playbook.
 - When an `assignee` rule is used and the server cannot read your GitHub account, no issue gets a
   playbook.
+- While there is any mistake, the issues waiting to start stay as they were.

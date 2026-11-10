@@ -6,19 +6,27 @@ import {
   ProjectId,
   ThreadId,
   type IssueBoardEntry,
+  type IssueOperationError,
+  type IssuePlaybookStartResult,
   type Project,
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import type * as Result from "effect/Result";
 
 import * as ServerConfig from "../config.ts";
 import { OrchestratorCommandRejectedError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadIssueService from "../orchestration-v2/ThreadIssueService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -26,6 +34,9 @@ import * as PlaybookStartService from "./PlaybookStartService.ts";
 
 const projectId = ProjectId.make("web");
 const threadId = ThreadId.make("thread-1");
+const openThreadId = ThreadId.make("thread-open");
+// The open thread may have moved to another project since it started.
+const openProjectId = ProjectId.make("elsewhere");
 
 const entry: IssueBoardEntry = {
   tracker: IssueTrackerKind.make("github"),
@@ -62,28 +73,65 @@ const playbooks = JSON.stringify([
   { name: "plain", prompt: "Look at {{issue.url}}." },
 ]);
 
-function start(input: {
-  readonly playbook: string;
+interface Options {
   readonly entry?: IssueBoardEntry;
+  /** The playbook the issue's entry waits with; null for an entry already started. */
+  readonly waitingWith?: string | null;
   readonly openIssueKeys?: ReadonlyArray<string>;
   readonly launch?: ThreadLaunchService.ThreadLaunchService["Service"]["launch"];
   readonly link?: ThreadIssueService.ThreadIssueService["Service"]["link"];
-}) {
+}
+
+const issueKey = "github github.com acme/web 6";
+
+function harness<A, E>(
+  input: Options,
+  body: (context: {
+    readonly start: (
+      playbook: string,
+    ) => Effect.Effect<Result.Result<IssuePlaybookStartResult, IssueOperationError>>;
+    readonly launched: ReadonlyArray<ThreadLaunchService.ThreadLaunchInput>;
+    readonly linked: ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>;
+    readonly sent: ReadonlyArray<ThreadManagement.ThreadManagementSendInput>;
+    /** The issue's entry as stored now. */
+    readonly stored: Effect.Effect<
+      IssuePlaybookEntries.PlaybookEntryRow | undefined,
+      IssuePlaybookEntries.IssuePlaybookEntriesRepositoryError
+    >;
+  }) => Effect.Effect<A, E>,
+) {
   const launched: Array<ThreadLaunchService.ThreadLaunchInput> = [];
   const linked: Array<ThreadIssueService.LinkThreadIssueInput> = [];
+  const sent: Array<ThreadManagement.ThreadManagementSendInput> = [];
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-playbook-start-" });
     yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
     yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks);
-    const result = yield* PlaybookStartService.PlaybookStartService.pipe(
-      Effect.flatMap((service) =>
-        service.start({ playbook: input.playbook, entry: input.entry ?? entry }),
-      ),
-      Effect.result,
+    return yield* Effect.gen(function* () {
+      const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+      const waitingWith = input.waitingWith === undefined ? "develop" : input.waitingWith;
+      yield* store.reconcile(() => [
+        {
+          issueKey,
+          board: "acme/1",
+          playbook: waitingWith ?? "develop",
+          startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
+        },
+      ]);
+      const service = yield* PlaybookStartService.PlaybookStartService;
+      return yield* body({
+        start: (playbook) =>
+          service.start({ playbook, entry: input.entry ?? entry }).pipe(Effect.result),
+        launched,
+        linked,
+        sent,
+        stored: store.list.pipe(Effect.map((rows) => rows.get(issueKey))),
+      });
+    }).pipe(
       Effect.provide(
         PlaybookStartService.layer.pipe(
-          Layer.provide(
+          Layer.provideMerge(
             Layer.mergeAll(
               ServerConfig.layerTest(process.cwd(), baseDir).pipe(
                 Layer.provideMerge(NodeServices.layer),
@@ -126,9 +174,24 @@ function start(input: {
                       : input.link(link);
                   }),
               }),
-              Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
-                listOpen: Effect.succeed(new Set(input.openIssueKeys ?? [])),
+              Layer.mock(ThreadManagement.ThreadManagementService)({
+                sendToThread: (send) =>
+                  Effect.sync(() => {
+                    sent.push(send);
+                    return {} as ThreadManagement.ThreadManagementSendResult;
+                  }),
               }),
+              Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
+                listOpen: Effect.succeed(
+                  new Map(
+                    (input.openIssueKeys ?? []).map((key) => [
+                      key,
+                      { threadId: openThreadId, projectId: openProjectId },
+                    ]),
+                  ),
+                ),
+              }),
+              IssuePlaybookEntries.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
               Layer.succeed(
                 SecureRandom.SecureRandom,
                 SecureRandom.make((size) => new Uint8Array(size).fill(7)),
@@ -138,16 +201,29 @@ function start(input: {
         ),
       ),
     );
-    return { result, launched, linked };
   }).pipe(Effect.provide(NodeServices.layer));
+}
+
+function start(input: Options & { readonly playbook: string }) {
+  return harness(input, (context) =>
+    context
+      .start(input.playbook)
+      .pipe(
+        Effect.flatMap((result) =>
+          context.stored.pipe(Effect.map((stored) => ({ ...context, result, stored }))),
+        ),
+      ),
+  );
 }
 
 describe("PlaybookStartService.start", () => {
   it.effect("launches with the playbook's settings and prompt, then links the issue", () =>
     Effect.gen(function* () {
-      const { result, launched, linked } = yield* start({ playbook: "Develop" });
+      const { result, launched, linked, sent, stored } = yield* start({ playbook: "Develop" });
 
       expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(sent).toEqual([]);
+      expect(stored?.startedBy).toBe(launched[0]?.commandId);
       expect(launched).toHaveLength(1);
       expect(launched[0]).toMatchObject({
         projectId,
@@ -175,7 +251,7 @@ describe("PlaybookStartService.start", () => {
 
   it.effect("takes the project's defaults for each setting the playbook leaves out", () =>
     Effect.gen(function* () {
-      const { launched } = yield* start({ playbook: "plain" });
+      const { launched } = yield* start({ playbook: "plain", waitingWith: "plain" });
 
       expect(launched[0]).toMatchObject({
         modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
@@ -197,9 +273,14 @@ describe("PlaybookStartService.start", () => {
       detail: "No T3 Code project is for acme/web.",
     },
     {
-      name: "an issue with an open thread",
-      input: { playbook: "develop", openIssueKeys: ["github github.com acme/web 6"] },
-      detail: "This issue already has an open thread.",
+      name: "an entry already started",
+      input: { playbook: "develop", waitingWith: null },
+      detail: "This issue is not waiting for playbook develop; refresh the Issues page.",
+    },
+    {
+      name: "an entry that waits with another playbook",
+      input: { playbook: "develop", waitingWith: "plain" },
+      detail: "This issue is not waiting for playbook develop; refresh the Issues page.",
     },
     {
       name: "a launch that fails",
@@ -217,15 +298,101 @@ describe("PlaybookStartService.start", () => {
       },
       detail: "The thread could not be started; it failed during dispatch-message.",
     },
-  ])("refuses $name with its cause and links nothing", ({ input, detail }) =>
-    Effect.gen(function* () {
-      const { result, linked } = yield* start(input);
+  ])(
+    "refuses $name with its cause, links nothing and leaves the entry as it was",
+    ({ input, detail }) =>
+      Effect.gen(function* () {
+        const { result, linked, sent, stored } = yield* start(input);
 
-      expect(result).toMatchObject({
-        _tag: "Failure",
-        failure: { operation: "startPlaybook", detail },
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: { operation: "startPlaybook", detail },
+        });
+        expect(linked).toEqual([]);
+        expect(sent).toEqual([]);
+        expect(stored?.startedBy).toBe(
+          input.waitingWith === null ? "issue-playbook:earlier" : null,
+        );
+      }),
+  );
+
+  it.effect("sends the playbook's prompt to the issue's open thread, queued behind its turn", () =>
+    Effect.gen(function* () {
+      const { result, launched, linked, sent, stored } = yield* start({
+        playbook: "plain",
+        waitingWith: "plain",
+        openIssueKeys: [issueKey],
       });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: openThreadId } });
+      expect(launched).toEqual([]);
       expect(linked).toEqual([]);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toMatchObject({
+        projectId: openProjectId,
+        threadId: openThreadId,
+        attachments: [],
+        mode: "queue",
+        createdBy: "user",
+        creationSource: "web",
+      });
+      expect(sent[0]).not.toHaveProperty("modelSelection");
+      expect(sent[0]?.text).toMatch(
+        /^Look at <issue-data-(\w+)>https:\/\/github\.com\/acme\/web\/issues\/6<\/issue-data-\1>\./,
+      );
+      expect(stored?.startedBy).toBe(sent[0]?.commandId);
+    }),
+  );
+
+  it.effect("leaves the issue waiting when its Start is interrupted", () =>
+    Effect.gen(function* () {
+      const launching = yield* Deferred.make<void>();
+      return yield* harness(
+        {
+          launch: () => Deferred.succeed(launching, undefined).pipe(Effect.andThen(Effect.never)),
+        },
+        ({ start: startPlaybook, stored }) =>
+          Effect.gen(function* () {
+            const started = yield* Effect.forkChild(startPlaybook("develop"));
+            yield* Deferred.await(launching);
+            expect((yield* stored)?.startedBy).not.toBeNull();
+            yield* Fiber.interrupt(started);
+
+            expect((yield* stored)?.startedBy).toBeNull();
+          }),
+      );
+    }),
+  );
+
+  it.effect("starts an entry once when a second Start arrives while the first launches", () =>
+    Effect.gen(function* () {
+      const launching = yield* Deferred.make<void>();
+      const proceed = yield* Deferred.make<void>();
+      return yield* harness(
+        {
+          launch: () =>
+            Deferred.succeed(launching, undefined).pipe(
+              Effect.andThen(Deferred.await(proceed)),
+              Effect.as({ threadId, projection: null as never, resumed: false }),
+            ),
+        },
+        ({ start: startPlaybook, launched }) =>
+          Effect.gen(function* () {
+            const first = yield* Effect.forkChild(startPlaybook("develop"));
+            yield* Deferred.await(launching);
+            const second = yield* startPlaybook("develop");
+            yield* Deferred.succeed(proceed, undefined);
+
+            expect(second).toMatchObject({
+              _tag: "Failure",
+              failure: {
+                detail: "This issue is not waiting for playbook develop; refresh the Issues page.",
+              },
+            });
+            expect(yield* Fiber.join(first)).toMatchObject({ _tag: "Success" });
+            expect(launched).toHaveLength(1);
+          }),
+      );
     }),
   );
 

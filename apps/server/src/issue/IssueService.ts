@@ -8,6 +8,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Semaphore from "effect/Semaphore";
 import {
   IssueOperationError,
   IssueTrackerKind,
@@ -52,8 +53,10 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
 import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
+import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { readBoards } from "./issueBoard.ts";
+import { reconcilePlaybookEntries, waitingPlaybook } from "./playbookEntries.ts";
 import {
   PLAYBOOKS_FILE,
   needsViewer,
@@ -212,6 +215,7 @@ const make = Effect.gen(function* () {
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const boardSources = yield* IssueBoardSources.IssueBoardSourcesRepository;
   const threadLinks = yield* IssueThreadLinks.IssueThreadLinksRepository;
+  const playbookEntries = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
@@ -482,6 +486,7 @@ const make = Effect.gen(function* () {
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
+  const boardReads = yield* Semaphore.make(1);
   const readBoardListing = Effect.gen(function* () {
     const boards = yield* readBoardSettings("board");
     if (boards.length === 0) return { boards: [] };
@@ -522,15 +527,9 @@ const make = Effect.gen(function* () {
               }),
           ),
         )
-      : new Set<string>();
-    const boards = listing.boards.map((candidate) => ({
-      ...candidate,
-      entries: candidate.entries.map((entry) => ({
-        ...entry,
-        hasOpenThread: open.has(IssueThreadLinks.issueThreadKey(entry)),
-      })),
-    }));
+      : new Map<string, IssueThreadLinks.OpenIssueThread>();
     let viewer: string | null = null;
+    let viewerError: string | null = null;
     if (hasEntries && needsViewer(playbooks)) {
       const api = registry.get(GITHUB);
       const read =
@@ -543,27 +542,63 @@ const make = Effect.gen(function* () {
       if (viewerRead._tag === "Failure") {
         // An assignee rule cannot decide, and skipping only those playbooks would hand their
         // issues to later ones.
-        return {
-          boards,
-          playbookErrors: [
-            ...errors,
-            `Your GitHub account could not be read, so no playbook applies: ${viewerRead.failure}`,
-          ],
-        };
+        viewerError = `Your GitHub account could not be read, so no playbook applies: ${viewerRead.failure}`;
+      } else {
+        viewer = viewerRead.success;
       }
-      viewer = viewerRead.success;
     }
-    return {
-      boards: boards.map((candidate) => ({
-        ...candidate,
-        entries: candidate.entries.map((entry) => ({
-          ...entry,
-          playbook: selectPlaybook(playbooks, entry, viewer),
-        })),
+    const playbookErrors = viewerError === null ? errors : [...errors, viewerError];
+    const boards = listing.boards.map((candidate) => ({
+      ...candidate,
+      entries: candidate.entries.map((entry) => ({
+        ...entry,
+        hasOpenThread: open.has(IssueThreadLinks.issueThreadKey(entry)),
+        playbook: viewerError === null ? selectPlaybook(playbooks, entry, viewer) : null,
       })),
-      playbookErrors: errors,
+    }));
+
+    // Entries change only while every playbook can select; otherwise they read as they were.
+    const decides = boards.some((candidate) => candidate.enabled && candidate.error === null);
+    const rows = !decides
+      ? new Map<string, IssuePlaybookEntries.PlaybookEntryRow>()
+      : yield* (
+          playbookErrors.length === 0
+            ? playbookEntries.reconcile((current) =>
+                reconcilePlaybookEntries({ rows: current, boards }),
+              )
+            : playbookEntries.list
+        ).pipe(
+          Effect.mapError(
+            (cause) =>
+              new IssueOperationError({
+                operation: "board",
+                detail: "Which issues wait for Start could not be read or saved.",
+                cause,
+              }),
+          ),
+        );
+    return {
+      boards: boards.map((candidate) => {
+        const boardKey = IssueBoardSources.boardSourceKey(candidate);
+        return {
+          ...candidate,
+          entries: candidate.entries.map((entry) => {
+            const row = rows.get(IssueThreadLinks.issueThreadKey(entry));
+            // Only on the board whose read decided it, so Start takes that board's fields.
+            return {
+              ...entry,
+              waitingPlaybook: row?.board === boardKey ? waitingPlaybook(row) : null,
+            };
+          }),
+        };
+      }),
+      playbookErrors,
     };
-  }).pipe(Effect.withSpan("IssueService.board"));
+  }).pipe(
+    // One read at a time, so an older read never applies after a newer one.
+    boardReads.withPermits(1),
+    Effect.withSpan("IssueService.board"),
+  );
 
   const setBoardEnabled: IssueService["Service"]["setBoardEnabled"] = Effect.fn(
     "IssueService.setBoardEnabled",

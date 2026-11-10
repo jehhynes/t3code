@@ -1,6 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -18,7 +21,8 @@ import {
   type IssueTrackerProjectBinding,
   SourceControlProviderKind,
   type OrchestrationProjectShell,
-  type ProjectId,
+  ProjectId,
+  ThreadId,
 } from "@t3tools/contracts";
 import {
   IssueTrackerError,
@@ -28,7 +32,9 @@ import {
 } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
 import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
+import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
+import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
@@ -165,6 +171,8 @@ function makeService(input: {
   readonly baseDir?: string;
   /** The `issueThreadKey` of each issue with an open thread. */
   readonly openIssueKeys?: ReadonlyArray<string>;
+  /** The entries store, for a test that starts entries; else a fresh one. */
+  readonly playbookEntries?: IssuePlaybookEntries.IssuePlaybookEntriesRepository["Service"];
 }) {
   const enabledBoards = input.enabledBoards ?? new Set<string>();
   return Effect.gen(function* () {
@@ -175,7 +183,16 @@ function makeService(input: {
       yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
       yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, input.playbooks);
     }
-    return yield* makeServiceIn(baseDir, input, enabledBoards);
+    // Built in the test's scope, so the database outlives the service's construction.
+    const playbookEntries =
+      input.playbookEntries ??
+      Context.get(
+        yield* Layer.build(
+          IssuePlaybookEntries.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+        ),
+        IssuePlaybookEntries.IssuePlaybookEntriesRepository,
+      );
+    return yield* makeServiceIn(baseDir, input, enabledBoards, playbookEntries);
   }).pipe(Effect.provide(NodeServices.layer));
 }
 
@@ -183,6 +200,7 @@ function makeServiceIn(
   baseDir: string,
   input: Parameters<typeof makeService>[0],
   enabledBoards: Set<string>,
+  playbookEntries: IssuePlaybookEntries.IssuePlaybookEntriesRepository["Service"],
 ) {
   return IssueService.IssueService.pipe(
     Effect.provide(
@@ -200,8 +218,17 @@ function makeServiceIn(
               ),
             }),
             Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
-              listOpen: Effect.succeed(new Set(input.openIssueKeys ?? [])),
+              listOpen: Effect.sync(
+                () =>
+                  new Map(
+                    (input.openIssueKeys ?? []).map((key) => [
+                      key,
+                      { threadId: ThreadId.make(`thread ${key}`), projectId: ProjectId.make("p") },
+                    ]),
+                  ),
+              ),
             }),
+            Layer.succeed(IssuePlaybookEntries.IssuePlaybookEntriesRepository, playbookEntries),
             Layer.mock(IssueBoardSources.IssueBoardSourcesRepository)({
               listEnabled: Effect.sync(() => new Set(enabledBoards)),
               set: (board) =>
@@ -598,11 +625,13 @@ describe("IssueService", () => {
           entry.projectTitle,
           entry.playbook,
           entry.hasOpenThread,
+          entry.waitingPlaybook,
         ]),
       ).toEqual([
-        ["Acme/Web", "1", "web", "web", "develop", true],
-        ["acme/api", "2", null, null, "ship", false],
-        ["me/app", "3", "app-fork", "app-fork", "other", false],
+        // First seen with an open thread, so it counts as started.
+        ["Acme/Web", "1", "web", "web", "develop", true, null],
+        ["acme/api", "2", null, null, "ship", false, "ship"],
+        ["me/app", "3", "app-fork", "app-fork", "other", false, "other"],
       ]);
       expect(boards[0]?.entries[0]).toMatchObject({ tracker: "github", host: "github.com" });
       expect(boards[1]).toEqual({
@@ -745,6 +774,197 @@ describe("IssueService", () => {
         playbookErrors: ["Playbook 1: Expected object"],
       });
     }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect(
+    "an issue waits once each time it enters a selection, and nothing changes while selection cannot be trusted",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-service-" });
+        yield* fs.makeDirectory(`${baseDir}/userdata`);
+        const playbooks = JSON.stringify([
+          { name: "develop", rules: { status: ["Ready"] }, prompt: "p" },
+          { name: "ship", rules: { status: ["In review"] }, prompt: "p" },
+          // Needs the GitHub account, so a failed account read stops every playbook.
+          { name: "mine", rules: { status: ["Mine"], assignee: "me" }, prompt: "p" },
+        ]);
+        yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks);
+        const statuses = new Map([
+          ["1", "Ready"],
+          ["2", "Ready"],
+        ]);
+        let boardFails = false;
+        let viewerFails = false;
+        const openIssueKeys = ["github github.com acme/web 2"];
+        const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+        const service = yield* makeService({
+          projects: [],
+          baseDir,
+          enabledBoards: new Set(["acme/1"]),
+          boards: [{ owner: "acme", number: 1, statusField: "Status" }],
+          openIssueKeys,
+          playbookEntries: store,
+          trackers: [
+            fakeTracker({
+              getViewer: () =>
+                viewerFails
+                  ? Effect.fail(
+                      new IssueTrackerError({
+                        tracker: GITHUB,
+                        operation: "getViewer",
+                        reason: "failed",
+                        detail: "Bad credentials",
+                      }),
+                    )
+                  : Effect.succeed("julius"),
+              listBoard: () =>
+                boardFails
+                  ? Effect.fail(
+                      new IssueTrackerError({
+                        tracker: GITHUB,
+                        operation: "listBoard",
+                        reason: "failed",
+                        detail: "Bad credentials",
+                      }),
+                    )
+                  : Effect.sync(() =>
+                      [...statuses].map(([key, status]) => ({
+                        ...issue(key),
+                        scope: "acme/web",
+                        status,
+                        blockers: [],
+                      })),
+                    ),
+            }),
+          ],
+        });
+        const waiting = service.board.pipe(
+          Effect.map(({ boards }) =>
+            boards.flatMap((board) =>
+              board.entries.map((entry) => [entry.key, entry.waitingPlaybook]),
+            ),
+          ),
+        );
+
+        // #2 already had an open thread when first seen.
+        expect(yield* waiting).toEqual([
+          ["1", "develop"],
+          ["2", null],
+        ]);
+        expect(
+          yield* store.claim({
+            issueKey: "github github.com acme/web 1",
+            playbook: "develop",
+            startedBy: "issue-playbook:1",
+          }),
+        ).toBe(true);
+        statuses.set("3", "Ready");
+        // #2's thread is settled; it entered with it open, so it still does not wait.
+        openIssueKeys.length = 0;
+        const before = [
+          ["1", null],
+          ["2", null],
+          ["3", "develop"],
+        ];
+        expect(yield* waiting).toEqual(before);
+
+        boardFails = true;
+        expect(yield* waiting).toEqual([]);
+        boardFails = false;
+        expect(yield* waiting).toEqual(before);
+
+        yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, '[{ "name": ');
+        statuses.set("3", "Backlog");
+        expect(yield* waiting).toEqual(before);
+        viewerFails = true;
+        yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks);
+        expect(yield* waiting).toEqual(before);
+        viewerFails = false;
+        statuses.set("3", "Ready");
+        expect(yield* waiting).toEqual(before);
+
+        yield* service.setBoardEnabled({ owner: "acme", number: 1, enabled: false });
+        statuses.set("3", "Backlog");
+        expect(yield* waiting).toEqual([]);
+        statuses.set("3", "Ready");
+        yield* service.setBoardEnabled({ owner: "acme", number: 1, enabled: true });
+        expect(yield* waiting).toEqual(before);
+
+        // Moving to another selection waits with it; leaving and coming back waits again.
+        statuses.set("1", "In review");
+        statuses.set("2", "Backlog");
+        expect(yield* waiting).toEqual([
+          ["1", "ship"],
+          ["2", null],
+          ["3", "develop"],
+        ]);
+        statuses.set("2", "Ready");
+        expect(yield* waiting).toEqual([
+          ["1", "ship"],
+          ["2", "develop"],
+          ["3", "develop"],
+        ]);
+      }).pipe(
+        Effect.provide(
+          Layer.merge(
+            IssuePlaybookEntries.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+            NodeServices.layer,
+          ),
+        ),
+      ),
+  );
+
+  it.effect("applies board reads in the order they began", () =>
+    Effect.gen(function* () {
+      const held = yield* Deferred.make<void>();
+      const proceed = yield* Deferred.make<void>();
+      let reads = 0;
+      const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+      const service = yield* makeService({
+        projects: [],
+        enabledBoards: new Set(["acme/1"]),
+        boards: [{ owner: "acme", number: 1, statusField: "Status" }],
+        playbooks: JSON.stringify([
+          { name: "develop", rules: { status: ["Ready"] }, prompt: "p" },
+          { name: "ship", rules: { status: ["In review"] }, prompt: "p" },
+        ]),
+        playbookEntries: store,
+        trackers: [
+          fakeTracker({
+            listBoard: () => {
+              reads += 1;
+              const status = reads === 1 ? "Ready" : "In review";
+              const listed = [{ ...issue("1"), scope: "acme/web", status, blockers: [] }];
+              return reads === 1
+                ? Deferred.succeed(held, undefined).pipe(
+                    Effect.andThen(Deferred.await(proceed)),
+                    Effect.as(listed),
+                  )
+                : Effect.succeed(listed);
+            },
+          }),
+        ],
+      });
+
+      const older = yield* Effect.forkChild(service.board);
+      yield* Deferred.await(held);
+      const newer = yield* Effect.forkChild(service.board, { startImmediately: true });
+      expect(reads).toBe(1);
+      yield* Deferred.succeed(proceed, undefined);
+      yield* Fiber.join(older);
+      yield* Fiber.join(newer);
+
+      expect(reads).toBe(2);
+      expect((yield* store.list).get("github github.com acme/web 1")?.playbook).toBe("ship");
+    }).pipe(
+      Effect.provide(
+        Layer.merge(
+          IssuePlaybookEntries.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
+          NodeServices.layer,
+        ),
+      ),
+    ),
   );
 });
 

@@ -90,6 +90,7 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
               projectTitle: project?.title ?? null,
               playbook: null,
               hasOpenThread: false,
+              waitingPlaybook: null,
             };
           }),
         })),

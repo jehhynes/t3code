@@ -1,11 +1,14 @@
-// Fork-only: Start launches a playbook's thread for a board issue (jehhynes/t3code#6).
+// Fork-only: Start runs a playbook for a board issue that waits (jehhynes/t3code#6, #7).
 import {
   CommandId,
   DEFAULT_PROVIDER_INTERACTION_MODE,
   IssueOperationError,
   MessageId,
+  type IssueBoardEntry,
+  type IssuePlaybook,
   type IssuePlaybookStartInput,
   type IssuePlaybookStartResult,
+  type Project,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
@@ -13,6 +16,7 @@ import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -23,7 +27,8 @@ import * as ServerConfig from "../config.ts";
 import * as ThreadIssueService from "../orchestration-v2/ThreadIssueService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../orchestration-v2/Orchestrator.ts";
-import type { ThreadManagementProviderInstanceDisabledError } from "../orchestration-v2/ThreadManagementService.ts";
+import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
+import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
@@ -34,7 +39,10 @@ import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 export class PlaybookStartService extends Context.Service<
   PlaybookStartService,
   {
-    /** Launches the playbook's thread in the issue's project, then links it to the issue. */
+    /**
+     * Sends the playbook's prompt to the issue's open thread, or launches the playbook's thread in
+     * the issue's project and links it to the issue. Only an issue waiting with that playbook.
+     */
     readonly start: (
       input: IssuePlaybookStartInput,
     ) => Effect.Effect<IssuePlaybookStartResult, IssueOperationError>;
@@ -44,7 +52,9 @@ export class PlaybookStartService extends Context.Service<
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
 
 function launchFailure(
-  error: ThreadLaunchService.ThreadLaunchError | ThreadManagementProviderInstanceDisabledError,
+  error:
+    | ThreadLaunchService.ThreadLaunchError
+    | ThreadManagement.ThreadManagementProviderInstanceDisabledError,
 ): string {
   if (error._tag === "ThreadManagementProviderInstanceDisabledError") {
     return `Provider instance ${error.instanceId} is turned off for this project.`;
@@ -65,6 +75,8 @@ const make = Effect.gen(function* () {
   const launches = yield* ThreadLaunchService.ThreadLaunchService;
   const threadIssues = yield* ThreadIssueService.ThreadIssueService;
   const threadLinks = yield* IssueThreadLinks.IssueThreadLinksRepository;
+  const entries = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+  const threads = yield* ThreadManagement.ThreadManagementService;
   const random = yield* SecureRandom.SecureRandom;
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
 
@@ -74,6 +86,102 @@ const make = Effect.gen(function* () {
       detail,
       ...(cause === undefined ? {} : { cause }),
     });
+
+  const sendOrLaunch = Effect.fn("PlaybookStartService.sendOrLaunch")(function* (
+    playbook: IssuePlaybook,
+    entry: IssueBoardEntry,
+    project: Project,
+    id: string,
+  ) {
+    const open = yield* threadLinks.listOpen.pipe(
+      Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
+    );
+    const frameId = Buffer.from(yield* random.randomBytes(6)).toString("hex");
+    const commandId = CommandId.make(`issue-playbook:${id}`);
+    const messageId = MessageId.make(`issue-playbook-message:${id}`);
+    const text = renderPlaybookPrompt(playbook.prompt, entry, frameId);
+
+    const thread = open.get(IssueThreadLinks.issueThreadKey(entry));
+    if (thread !== undefined) {
+      // The thread keeps its own model and modes; a running turn finishes first.
+      yield* threads
+        .sendToThread({
+          projectId: thread.projectId,
+          commandId,
+          threadId: thread.threadId,
+          messageId,
+          text,
+          attachments: [],
+          mode: "queue",
+          createdBy: "user",
+          creationSource: "web",
+        })
+        .pipe(
+          Effect.mapError((cause) =>
+            fail("The prompt could not be sent to the issue's open thread.", cause),
+          ),
+        );
+      return { threadId: thread.threadId };
+    }
+
+    // What a new thread in the project would take, as the MCP launch resolves it.
+    const settings = resolveProjectSettings(
+      yield* serverSettings.getSettings.pipe(
+        Effect.mapError((cause) => fail("The server settings could not be read.", cause)),
+      ),
+      project.id,
+      project,
+    ).settings;
+    const modelSelection =
+      playbook.modelSelection ??
+      resolveNewThreadModelSelection({
+        defaultSelection: settings.defaultModelSelection,
+        fallbackSelection: settings.fallbackModelSelection,
+        providers: yield* providers.getProviders,
+        settings,
+        projectId: project.id,
+        now: DateTime.toEpochMillis(yield* DateTime.now),
+      }).selection;
+    if (modelSelection === null) {
+      return yield* fail(
+        `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
+      );
+    }
+
+    const { threadId } = yield* launches
+      .launch({
+        commandId,
+        projectId: project.id,
+        title: `${entry.displayKey} ${entry.title}`,
+        modelSelection,
+        runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
+        interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
+        workspaceStrategy: { type: "root" },
+        initialMessage: { messageId, text, attachments: [] },
+        createdBy: "user",
+        creationSource: "web",
+      })
+      .pipe(Effect.mapError((cause) => fail(launchFailure(cause), cause)));
+    yield* threadIssues
+      .link({
+        threadId,
+        ref: {
+          projectId: project.id,
+          tracker: entry.tracker,
+          host: entry.host,
+          scope: entry.scope,
+          key: entry.key,
+        },
+        url: entry.url,
+        source: "manual",
+      })
+      .pipe(
+        Effect.mapError((cause) =>
+          fail("The thread started but could not be linked to the issue.", cause),
+        ),
+      );
+    return { threadId };
+  });
 
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
     function* ({ playbook: name, entry }) {
@@ -96,76 +204,42 @@ const make = Effect.gen(function* () {
           .pipe(Effect.mapError((cause) => fail("The project could not be read.", cause))),
       );
       if (project === undefined) return yield* fail("The issue's project no longer exists.");
-      const open = yield* threadLinks.listOpen.pipe(
-        Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
-      );
-      if (open.has(IssueThreadLinks.issueThreadKey(entry))) {
-        return yield* fail("This issue already has an open thread.");
-      }
 
-      // What a new thread in the project would take, as the MCP launch resolves it.
-      const settings = resolveProjectSettings(
-        yield* serverSettings.getSettings.pipe(
-          Effect.mapError((cause) => fail("The server settings could not be read.", cause)),
-        ),
-        projectId,
-        project,
-      ).settings;
-      const modelSelection =
-        playbook.modelSelection ??
-        resolveNewThreadModelSelection({
-          defaultSelection: settings.defaultModelSelection,
-          fallbackSelection: settings.fallbackModelSelection,
-          providers: yield* providers.getProviders,
-          settings,
-          projectId,
-          now: DateTime.toEpochMillis(yield* DateTime.now),
-        }).selection;
-      if (modelSelection === null) {
-        return yield* fail(
-          `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
-        );
-      }
-
+      // Claiming the entry makes a second Start of it, from any client, refuse.
       const id = yield* random.uuidV4();
-      const frameId = Buffer.from(yield* random.randomBytes(6)).toString("hex");
-      const { threadId } = yield* launches
-        .launch({
-          commandId: CommandId.make(`issue-playbook:${id}`),
-          projectId,
-          title: `${entry.displayKey} ${entry.title}`,
-          modelSelection,
-          runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
-          interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
-          workspaceStrategy: { type: "root" },
-          initialMessage: {
-            messageId: MessageId.make(`issue-playbook-message:${id}`),
-            text: renderPlaybookPrompt(playbook.prompt, entry, frameId),
-            attachments: [],
-          },
-          createdBy: "user",
-          creationSource: "web",
-        })
-        .pipe(Effect.mapError((cause) => fail(launchFailure(cause), cause)));
-      yield* threadIssues
-        .link({
-          threadId,
-          ref: {
-            projectId,
-            tracker: entry.tracker,
-            host: entry.host,
-            scope: entry.scope,
-            key: entry.key,
-          },
-          url: entry.url,
-          source: "manual",
-        })
-        .pipe(
-          Effect.mapError((cause) =>
-            fail("The thread started but could not be linked to the issue.", cause),
+      const claim = {
+        issueKey: IssueThreadLinks.issueThreadKey(entry),
+        startedBy: `issue-playbook:${id}`,
+      };
+      // Acquired uninterruptibly, so an interrupted Start cannot keep a claim it never used.
+      return yield* Effect.acquireUseRelease(
+        entries
+          .claim({ ...claim, playbook: playbook.name })
+          .pipe(
+            Effect.mapError((cause) =>
+              fail("Which issues wait for Start could not be saved.", cause),
+            ),
           ),
-        );
-      return { threadId };
+        (claimed) =>
+          claimed
+            ? sendOrLaunch(playbook, entry, project, id)
+            : Effect.fail(
+                fail(
+                  `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
+                ),
+              ),
+        // A Start that fails or is interrupted leaves the issue waiting.
+        (claimed, exit) =>
+          claimed && Exit.isFailure(exit)
+            ? entries
+                .release(claim)
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logError("A failed Start left its issue started", { ...claim, cause }),
+                  ),
+                )
+            : Effect.void,
+      );
     },
   );
 

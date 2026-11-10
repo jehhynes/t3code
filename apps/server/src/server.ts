@@ -52,6 +52,7 @@ import * as IssueService from "./issue/IssueService.ts";
 import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueBoardSources from "./persistence/IssueBoardSources.ts";
+import * as IssuePlaybookEntries from "./persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "./persistence/IssueThreadLinks.ts";
 import * as IssueTrackerBindings from "./persistence/IssueTrackerBindings.ts";
 import * as IssueTrackerRegistry from "./issue/IssueTrackerRegistry.ts";
@@ -438,6 +439,7 @@ const layerIssueService = Layer.merge(IssueService.layer, IssueTrackerConnection
       IssueTrackerBindings.layer,
       IssueBoardSources.layer,
       IssueThreadLinks.layer,
+      IssuePlaybookEntries.layer,
     ),
   ),
 );
@@ -849,7 +851,11 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
-  Layer.provide(PlaybookStartService.layer.pipe(Layer.provide(IssueThreadLinks.layer))),
+  Layer.provide(
+    PlaybookStartService.layer.pipe(
+      Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
+    ),
+  ),
   Layer.provide(layerThreadIssueService),
   Layer.provide(layerIssueService),
   // The same activity instance RunExecutionService reports to, by layer memoization.

@@ -47,7 +47,33 @@ const board = (number: number, entries: ReadonlyArray<IssueBoardEntry>): IssueBo
 });
 
 describe("waitingIssues", () => {
-  it("lists each selected issue without an open thread once, as the first board selecting it lists it", () => {
+  it("lists each issue that waits once, with the playbook it waits with", () => {
+    const waiting = waitingIssues([
+      [
+        env,
+        {
+          playbookErrors: [],
+          boards: [
+            board(1, [
+              // Started, and its thread since settled.
+              entry("1", { waitingPlaybook: null }),
+              // Moved to ship with its thread open.
+              entry("2", { playbook: "ship", hasOpenThread: true, waitingPlaybook: "ship" }),
+              // Selection is frozen by a mistake; it still waits as before.
+              entry("3", { playbook: null, waitingPlaybook: "develop" }),
+            ]),
+          ],
+        },
+      ],
+    ]);
+
+    expect(waiting.map(({ entry }) => [entry.key, entry.playbook])).toEqual([
+      ["3", "develop"],
+      ["2", "ship"],
+    ]);
+  });
+
+  it("from a server older than #7, lists each selected issue without an open thread once, as the first board selecting it lists it", () => {
     const waiting = waitingIssues([
       [
         env,
