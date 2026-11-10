@@ -214,3 +214,15 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 ## Fork
 
 This checkout is a fork. Building and installing it: [docs/fork/building.md](docs/fork/building.md).
+
+### Development workflow
+
+Fork work runs through the sb skills (`sb-plan`, `sb-build`, `sb-review`, `sb-ship`) in any harness.
+
+- The base branch is `switchboard`, the fork's top layer; `switchboard-base` takes only upstream integrations, per the fork workflow in [issue #1](https://github.com/jehhynes/t3code/issues/1).
+- The project uses no Switchboard.
+- The planning documents are [issue #1](https://github.com/jehhynes/t3code/issues/1) for the fork's goals and fork-only constraints, [overview.md](docs/internals/overview.md) and the rest of `docs/internals/` for the architecture, and `docs/fork/`.
+- For fork work, the UAT that `sb-build` assigns to a subagent with the `browser-check` skill is the integrated pass that § Verifying requires; the primary agent starts the checkout's dev server before it assigns that subagent.
+- Put workflow state and scratch files in `.wip/` at the root of the current checkout; this overrides "Keep temporary working material outside the worktree" for fork work.
+- Invoke the `commit` skill before every commit, rebase or squash, and the `issues` skill before you create an issue, edit an issue's body or add an issue to the board.
+- Invoke the `cross-check` skill for each subagent review of code, a plan, a diagnosis, a draft or an instruction file.
