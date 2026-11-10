@@ -171,9 +171,10 @@ describe("runMigrations", () => {
       yield* runMigrations();
       assert.deepStrictEqual(yield* history, migrationManifest);
       const tables = yield* sql`
-        SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'issue_tracker_bindings'
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND name IN ('issue_tracker_bindings', 'issue_board_sources')
       `;
-      assert.strictEqual(tables.length, 1);
+      assert.strictEqual(tables.length, 2);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });

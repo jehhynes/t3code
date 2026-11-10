@@ -25,6 +25,7 @@ import {
   type TrackerIssueDetail,
 } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
+import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
@@ -152,7 +153,10 @@ function makeService(input: {
   readonly trackers: ReadonlyArray<IssueTrackerApi>;
   readonly bindings?: Record<string, IssueTrackerProjectBinding>;
   readonly boards?: ReadonlyArray<GitHubBoardConfig>;
+  /** The board store's keys; the service turns boards on and off in it. */
+  readonly enabledBoards?: Set<string>;
 }) {
+  const enabledBoards = input.enabledBoards ?? new Set<string>();
   return IssueService.IssueService.pipe(
     Effect.provide(
       IssueService.layer.pipe(
@@ -167,6 +171,15 @@ function makeService(input: {
                   ]),
                 ),
               ),
+            }),
+            Layer.mock(IssueBoardSources.IssueBoardSourcesRepository)({
+              listEnabled: Effect.sync(() => new Set(enabledBoards)),
+              set: (board) =>
+                Effect.sync(() => {
+                  const key = IssueBoardSources.boardSourceKey(board);
+                  if (board.enabled) enabledBoards.add(key);
+                  else enabledBoards.delete(key);
+                }),
             }),
             Layer.succeed(
               IssueTrackerRegistry.IssueTrackerRegistry,
@@ -491,6 +504,8 @@ describe("IssueService", () => {
         boards: [
           { owner: "acme", number: 1, statusField: "Status" },
           { owner: "acme", number: 2, statusField: "Stage" },
+          // Never turned on: listed as off and never read.
+          { owner: "acme", number: 3, statusField: "Status" },
         ],
         trackers: [
           fakeTracker({
@@ -515,11 +530,13 @@ describe("IssueService", () => {
         ],
       });
 
+      yield* service.setBoardEnabled({ owner: "Acme", number: 1, enabled: true });
+      yield* service.setBoardEnabled({ owner: "acme", number: 2, enabled: true });
       const { boards } = yield* service.board;
 
       expect(asked.toSorted()).toEqual(["github.com acme/1 Status", "github.com acme/2 Stage"]);
-      expect(boards).toHaveLength(2);
-      expect(boards[0]).toMatchObject({ owner: "acme", number: 1, error: null });
+      expect(boards).toHaveLength(3);
+      expect(boards[0]).toMatchObject({ owner: "acme", number: 1, enabled: true, error: null });
       expect(
         boards[0]?.entries.map((entry) => [
           entry.scope,
@@ -537,12 +554,61 @@ describe("IssueService", () => {
         owner: "acme",
         number: 2,
         statusField: "Stage",
+        enabled: true,
         entries: [],
         error: 'Project acme/2 has no field named "Stage".',
+      });
+      expect(boards[2]).toEqual({
+        owner: "acme",
+        number: 3,
+        statusField: "Status",
+        enabled: false,
+        entries: [],
+        error: null,
       });
 
       const unconfigured = yield* makeService({ projects: [], trackers: [fakeTracker()] });
       expect(yield* unconfigured.board).toEqual({ boards: [] });
+    }),
+  );
+
+  it.effect("reads a board only while it is turned on, and only a board that settings name", () =>
+    Effect.gen(function* () {
+      let reads = 0;
+      const enabledBoards = new Set<string>();
+      const service = yield* makeService({
+        projects: [],
+        enabledBoards,
+        boards: [{ owner: "acme", number: 1, statusField: "Status" }],
+        trackers: [
+          fakeTracker({
+            listBoard: () =>
+              Effect.sync(() => {
+                reads += 1;
+                return [{ ...issue("1"), scope: "acme/web", status: null, blockers: [] }];
+              }),
+          }),
+        ],
+      });
+      const entryKeys = Effect.map(service.board, ({ boards }) =>
+        boards.map((board) => [board.enabled, board.entries.map((entry) => entry.key)]),
+      );
+
+      expect(yield* entryKeys).toEqual([[false, []]]);
+      yield* service.setBoardEnabled({ owner: "acme", number: 1, enabled: true });
+      expect(yield* entryKeys).toEqual([[true, ["1"]]]);
+      expect(reads).toBe(1);
+      yield* service.setBoardEnabled({ owner: "ACME", number: 1, enabled: false });
+      expect(yield* entryKeys).toEqual([[false, []]]);
+      expect(reads).toBe(1);
+
+      const refused = yield* Effect.flip(
+        service.setBoardEnabled({ owner: "acme", number: 2, enabled: true }),
+      );
+      expect(refused).toMatchObject({
+        detail: "GitHub board acme/2 is not named in the server's settings.",
+      });
+      expect([...enabledBoards]).toEqual([]);
     }),
   );
 });

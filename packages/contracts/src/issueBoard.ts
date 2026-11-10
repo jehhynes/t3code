@@ -39,6 +39,8 @@ export const IssueBoard = Schema.Struct({
   owner: TrimmedNonEmptyString,
   number: PositiveInt,
   statusField: TrimmedNonEmptyString,
+  /** Whether the board is read; a board is off, with no entries, until it is turned on. */
+  enabled: Schema.Boolean,
   entries: Schema.Array(IssueBoardEntry),
   /** Why the board could not be read; its entries are then empty. */
   error: Schema.NullOr(TrimmedNonEmptyString),
@@ -49,3 +51,11 @@ export const IssueBoardResult = Schema.Struct({
   boards: Schema.Array(IssueBoard),
 });
 export type IssueBoardResult = typeof IssueBoardResult.Type;
+
+/** Turns a board that settings name on or off; the server keeps this, not `settings.json`. */
+export const IssueBoardSetEnabledInput = Schema.Struct({
+  owner: TrimmedNonEmptyString,
+  number: PositiveInt,
+  enabled: Schema.Boolean,
+});
+export type IssueBoardSetEnabledInput = typeof IssueBoardSetEnabledInput.Type;

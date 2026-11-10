@@ -191,7 +191,7 @@ import {
   IssueUnavailableError,
   IssueUpdateInput,
 } from "./issue.ts";
-import { IssueBoardResult } from "./issueBoard.ts";
+import { IssueBoardResult, IssueBoardSetEnabledInput } from "./issueBoard.ts";
 import {
   GuestShareCreateError,
   GuestShareCreateInput,
@@ -625,6 +625,7 @@ export const WS_METHODS = {
   // Issue tracking methods
   issuesList: "issues.list",
   issuesBoard: "issues.board",
+  issuesSetBoardEnabled: "issues.setBoardEnabled",
   issuesDetail: "issues.detail",
   issuesComments: "issues.comments",
   issuesTemplates: "issues.templates",
@@ -1296,6 +1297,12 @@ const WsIssuesListRpc = Rpc.make(WS_METHODS.issuesList, {
 const WsIssuesBoardRpc = Rpc.make(WS_METHODS.issuesBoard, {
   payload: Schema.Struct({}),
   success: IssueBoardResult,
+  error: IssueRpcError,
+});
+
+const WsIssuesSetBoardEnabledRpc = Rpc.make(WS_METHODS.issuesSetBoardEnabled, {
+  payload: IssueBoardSetEnabledInput,
+  success: Schema.Void,
   error: IssueRpcError,
 });
 
@@ -2212,6 +2219,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
 export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesBoardRpc,
+  WsIssuesSetBoardEnabledRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
   WsIssuesTemplatesRpc,

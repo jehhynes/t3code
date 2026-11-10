@@ -26,6 +26,15 @@ Add `githubBoards` to the server's `settings.json` (`~/.t3/userdata/settings.jso
 A change to the file applies at the Issues page's next refresh. Remove a board from the list to
 stop showing it.
 
+## Turn a board on and off
+
+A board you add starts off: its section shows only its heading, marked **Off**, and T3 Code does
+not read it from GitHub. Turn it on with the switch in its heading, and its issues list at once.
+Turn it off for the weeks you do not work on it; its threads stay as they are.
+
+The server remembers which boards are on across restarts. The switch never changes
+`settings.json`, so you can keep that file in git.
+
 ## What the page shows
 
 Each board gets its own section at the top of the Issues page. Its issues are grouped under the
@@ -36,6 +45,6 @@ shows its board status, assignees, labels and the open issues that block it.
 The sections hold open issues only, so they hide under **Closed**. The search box narrows them by
 title and number; the involvement and tracker filters do not apply to them.
 
-A board that cannot be read says why in its section: for example, a status field that does not
+A board that is on but cannot be read says why in its section: for example, a status field that does not
 exist or is not a single-select field. GitHub search lists at most 1,000 issues, so a board with
 more open issues than that cannot be read.

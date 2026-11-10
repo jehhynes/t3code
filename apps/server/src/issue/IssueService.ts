@@ -2,6 +2,7 @@
 // References outside the project's canonical repository may be read on the same host,
 // but every write must pass through requireWritable.
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -10,6 +11,7 @@ import {
   IssueTrackerKind,
   IssueUnavailableError,
   type IssueBoardResult,
+  type IssueBoardSetEnabledInput,
   type IssueCandidates,
   type IssueCommentInput,
   type IssueCommentsPage,
@@ -46,6 +48,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
+import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import { readBoards } from "./issueBoard.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
@@ -161,6 +164,8 @@ export class IssueService extends Context.Service<
     readonly list: (input: IssueListInput) => Effect.Effect<IssueListResult, IssueError>;
     /** Every open issue on each GitHub board named in settings, with its project or none. */
     readonly board: Effect.Effect<IssueBoardResult, IssueError>;
+    /** Turns a board that settings name on or off; the server keeps this, not settings. */
+    readonly setBoardEnabled: (input: IssueBoardSetEnabledInput) => Effect.Effect<void, IssueError>;
     readonly detail: (input: IssueRef) => Effect.Effect<IssueDetail, IssueError>;
     readonly comments: (
       input: IssueCommentsPageInput,
@@ -193,6 +198,7 @@ const make = Effect.gen(function* () {
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const bindings = yield* IssueTrackerBindings.IssueTrackerBindingsRepository;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
+  const boardSources = yield* IssueBoardSources.IssueBoardSourcesRepository;
 
   // Read per resolution so a binding saved in Settings applies without a restart.
   const resolveStandaloneBinding = (
@@ -433,18 +439,35 @@ const make = Effect.gen(function* () {
     };
   });
 
-  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+  const readBoardSettings = Effect.fn("IssueService.readBoardSettings")(function* (
+    operation: string,
+  ) {
     const settings = yield* serverSettings.getSettings.pipe(
       Effect.mapError(
         (cause) =>
           new IssueOperationError({
-            operation: "board",
+            operation,
             detail: "The server settings could not be read.",
             cause,
           }),
       ),
     );
-    if (settings.githubBoards.length === 0) return { boards: [] };
+    return settings.githubBoards;
+  });
+  const boardStoreError = (operation: string) => (cause: unknown) =>
+    new IssueOperationError({
+      operation,
+      detail: "Which GitHub boards are on could not be read or saved.",
+      cause,
+    });
+
+  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+    const boards = yield* readBoardSettings("board");
+    if (boards.length === 0) return { boards: [] };
+    const enabled = yield* boardSources.listEnabled.pipe(Effect.mapError(boardStoreError("board")));
+    if (!boards.some((candidate) => enabled.has(IssueBoardSources.boardSourceKey(candidate)))) {
+      return yield* readBoards({ boards, enabled, api: null, projects: [] });
+    }
     const { supported } = yield* listProjects({});
     const projectScopes = yield* Effect.forEach(
       supported,
@@ -456,11 +479,30 @@ const make = Effect.gen(function* () {
       { concurrency: SCOPE_CONCURRENCY },
     );
     return yield* readBoards({
-      boards: settings.githubBoards,
+      boards,
+      enabled,
       api: registry.get(IssueTrackerKind.make("github")),
       projects: projectScopes,
     });
   }).pipe(Effect.withSpan("IssueService.board"));
+
+  const setBoardEnabled: IssueService["Service"]["setBoardEnabled"] = Effect.fn(
+    "IssueService.setBoardEnabled",
+  )(function* (input) {
+    const boards = yield* readBoardSettings("setBoardEnabled");
+    const key = IssueBoardSources.boardSourceKey(input);
+    if (!boards.some((candidate) => IssueBoardSources.boardSourceKey(candidate) === key)) {
+      return yield* new IssueOperationError({
+        operation: "setBoardEnabled",
+        reason: "not-found",
+        detail: `GitHub board ${input.owner}/${input.number} is not named in the server's settings.`,
+      });
+    }
+    const at = DateTime.formatIso(yield* DateTime.now);
+    yield* boardSources
+      .set({ owner: input.owner, number: input.number, enabled: input.enabled, at })
+      .pipe(Effect.mapError(boardStoreError("setBoardEnabled")));
+  });
 
   const detail: IssueService["Service"]["detail"] = (input) =>
     requireProject(input).pipe(
@@ -686,6 +728,7 @@ const make = Effect.gen(function* () {
   return IssueService.of({
     list,
     board,
+    setBoardEnabled,
     detail: traced("detail", detail),
     comments: traced("comments", comments),
     templates: traced("templates", templates),

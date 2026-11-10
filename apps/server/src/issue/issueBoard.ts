@@ -10,6 +10,8 @@ import {
 } from "@t3tools/contracts";
 import type { IssueTrackerApi } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
+import { boardSourceKey } from "../persistence/IssueBoardSources.ts";
+
 const GITHUB = IssueTrackerKind.make("github");
 const GITHUB_HOST = "github.com";
 const BOARD_CONCURRENCY = 2;
@@ -34,10 +36,13 @@ function originScope(origin: RepositoryOrigin | null): string | null {
 /**
  * Each board's open issues, each under the first project whose repository it is in, as the
  * listing serves a repository from its first project, else the first whose origin it is. A
- * board that cannot be read carries why, and the other boards still list.
+ * board that cannot be read carries why, and the other boards still list. A board that is off
+ * is not read.
  */
 export const readBoards = Effect.fn("IssueService.readBoards")(function* (input: {
   readonly boards: ReadonlyArray<GitHubBoardConfig>;
+  /** The `boardSourceKey` of each board that is on. */
+  readonly enabled: ReadonlySet<string>;
   readonly api: IssueTrackerApi | null;
   readonly projects: ReadonlyArray<BoardProjectScope>;
 }) {
@@ -59,13 +64,22 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
   const boards = yield* Effect.forEach(
     input.boards,
     (board): Effect.Effect<IssueBoard> => {
-      const unread = (error: string): IssueBoard => ({ ...board, entries: [], error });
+      if (!input.enabled.has(boardSourceKey(board))) {
+        return Effect.succeed({ ...board, enabled: false, entries: [], error: null });
+      }
+      const unread = (error: string): IssueBoard => ({
+        ...board,
+        enabled: true,
+        entries: [],
+        error,
+      });
       if (listBoard === undefined) {
         return Effect.succeed(unread("GitHub boards cannot be read by this server."));
       }
       return listBoard({ ...board, host: GITHUB_HOST }).pipe(
         Effect.map((issues): IssueBoard => ({
           ...board,
+          enabled: true,
           error: null,
           entries: issues.map((issue) => {
             const project = byRepository.get(issue.scope.toLowerCase()) ?? null;

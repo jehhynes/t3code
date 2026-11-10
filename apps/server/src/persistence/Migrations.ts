@@ -83,6 +83,7 @@ import Migration0077 from "./Migrations/077_RepairBooleanSettledOverride.ts";
 import Migration0078 from "./Migrations/078_DropOrchestrationEventCorrelationIndex.ts";
 import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
 import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
+import IssueBoardSourcesSchema from "./Migrations/unnumbered/IssueBoardSources.ts";
 import IssueTrackerBindingsSchema from "./Migrations/unnumbered/IssueTrackerBindings.ts";
 
 const migrationEntries = [
@@ -172,7 +173,7 @@ const migrationEntries = [
 // Fork-only schema, run after the numbered migrations on every startup and never recorded, so
 // the history stays identical to upstream's and upstream ids merge in unchanged. Steps must be
 // idempotent; drop one once upstream ships it as a numbered migration.
-const unnumberedSchemaSteps = [IssueTrackerBindingsSchema];
+const unnumberedSchemaSteps = [IssueTrackerBindingsSchema, IssueBoardSourcesSchema];
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);
 

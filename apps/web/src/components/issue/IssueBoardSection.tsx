@@ -1,11 +1,20 @@
 // Fork-only: a GitHub board's open issues on the Issues page (jehhynes/t3code#2).
+import { useAtomValue } from "@effect/atom-react";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoard, IssueBoardEntry, ProjectId } from "@t3tools/contracts";
 import { ArrowUpRightIcon, KanbanIcon } from "lucide-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 import { cn } from "~/lib/utils";
+import { issueEnvironment } from "~/state/issues";
+import { useAtomCommand } from "~/state/use-atom-command";
 
 import { Badge } from "../ui/badge";
+import { Switch } from "../ui/switch";
+import { toastManager } from "../ui/toast";
 import {
   PULL_REQUEST_ROW_CLASS,
   PULL_REQUEST_ROW_NUMBER_CLASS,
@@ -138,14 +147,57 @@ function IssueBoardSectionImpl({
             entry.displayKey.toLowerCase().includes(needle),
         );
   const groups = groupBoard(entries);
+  const name = `${board.owner}/${board.number}`;
+  const canSwitch = useAtomValue(issueEnvironment.setBoardEnabled.permissionAtom(environmentId));
+  const setEnabled = useAtomCommand(issueEnvironment.setBoardEnabled, {
+    label: "issue board enabled",
+  });
+  // The command starts the board read before it resolves; the switch holds the requested state
+  // until that read settles, then shows the answer.
+  const boardRead = useAtomValue(issueEnvironment.board({ environmentId, input: {} }));
+  const [request, setRequest] = useState<{ enabled: boolean; sent: boolean } | null>(null);
+  if (request?.sent && !boardRead.waiting) setRequest(null);
+  const toggle = async (enabled: boolean) => {
+    setRequest({ enabled, sent: false });
+    const result = await setEnabled({
+      environmentId,
+      input: { owner: board.owner, number: board.number, enabled },
+    });
+    setRequest(result._tag === "Failure" ? null : { enabled, sent: true });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      toastManager.add({
+        type: "error",
+        title: `Could not turn GitHub board ${name} ${enabled ? "on" : "off"}`,
+        description: String(squashAtomCommandFailure(result)),
+      });
+    }
+  };
   return (
-    <section className="flex flex-col gap-1" aria-label={`Board ${board.owner}/${board.number}`}>
+    <section className="flex flex-col gap-1" aria-label={`Board ${name}`}>
       <h2 className="flex items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
         <KanbanIcon aria-hidden className="size-3.5" />
-        GitHub board {board.owner}/{board.number}
+        GitHub board {name}
         {environmentLabel ? <span className="font-normal">· {environmentLabel}</span> : null}
+        {board.enabled ? null : (
+          <Badge variant="outline" size="sm">
+            Off
+          </Badge>
+        )}
+        <span className="ms-auto flex">
+          <Switch
+            size="sm"
+            checked={request?.enabled ?? board.enabled}
+            disabled={request !== null || !canSwitch}
+            aria-label={`Read GitHub board ${name}`}
+            onCheckedChange={(enabled) => void toggle(enabled)}
+          />
+        </span>
       </h2>
-      {board.error !== null ? (
+      {!board.enabled ? (
+        <p className="px-3 text-sm text-muted-foreground">
+          This board is off, so its issues are not read.
+        </p>
+      ) : board.error !== null ? (
         <p className="px-3 text-sm text-destructive">{board.error}</p>
       ) : groups.length === 0 ? (
         <p className="px-3 text-sm text-muted-foreground">

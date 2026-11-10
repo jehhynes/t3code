@@ -81,6 +81,12 @@ export function createIssueEnvironmentAtoms<R, E>(
     tag: WS_METHODS.issuesDetail,
     staleTimeMs: 30_000,
   });
+  /** The GitHub boards the server names in settings, each read whole while it is on. */
+  const board = createEnvironmentRpcQueryAtomFamily(runtime, {
+    label: "environment-data:issues:board",
+    tag: WS_METHODS.issuesBoard,
+    staleTimeMs: 30_000,
+  });
   const detailRef = ({ projectId, tracker, host, scope, key }: IssueRef): IssueRef => ({
     projectId,
     tracker,
@@ -98,11 +104,15 @@ export function createIssueEnvironmentAtoms<R, E>(
       tag: WS_METHODS.issuesList,
       staleTimeMs: 30_000,
     }),
-    /** The GitHub boards the server names in settings, each read whole. */
-    board: createEnvironmentRpcQueryAtomFamily(runtime, {
-      label: "environment-data:issues:board",
-      tag: WS_METHODS.issuesBoard,
-      staleTimeMs: 30_000,
+    board,
+    /** Turns a board on or off, then reads the boards again, so a board turned on lists at once. */
+    setBoardEnabled: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:set-board-enabled",
+      tag: WS_METHODS.issuesSetBoardEnabled,
+      scheduler: commandScheduler,
+      concurrency: serialPerEnvironment,
+      onSettled: ({ environmentId }, registry) =>
+        Effect.sync(() => registry.refresh(board({ environmentId, input: {} }))),
     }),
     /**
      * A continuation of the listing, run as a command rather than read as a query: a page is
