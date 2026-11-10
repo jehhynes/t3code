@@ -163,6 +163,19 @@ describe("runMigrations", () => {
       assert.deepStrictEqual(yield* runMigrations(), []);
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
+
+  it.effect("creates fork-only tables without recording them in the history", () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* runMigrations();
+      yield* runMigrations();
+      assert.deepStrictEqual(yield* history, migrationManifest);
+      const tables = yield* sql`
+        SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'issue_tracker_bindings'
+      `;
+      assert.strictEqual(tables.length, 1);
+    }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
+  );
 });
 
 // The npm launcher reads the highest migration id from these file names.
