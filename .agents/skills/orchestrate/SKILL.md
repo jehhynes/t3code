@@ -39,7 +39,6 @@ Run one issue at a time, and start the next issue only after the previous one sh
    - **Task:** invoke the `sb-plan` skill with the issue number, as if the operator had typed `/sb-plan <issue>`, and continue through `sb-build` and `sb-review` to the handover.
    - **Dev server:** you are the primary agent of this checkout: start its dev server per the `environment-repair` skill before you assign UAT, and stop it by its PID before `sb-ship`.
    - **Questions:** where an sb skill says to stop with AskUserQuestion, end the turn with the question, the options with a recommended answer first and its reason, and the state needed to resume.
-   - **Subagents:** prefer Codex for the subagent work, through the `cross-check` skill or the `codex:codex-rescue` agent, except where an sb skill names a Claude subagent.
 3. Keep the worker's ID for `SendMessage` until the issue ships.
 
 ### 3. Answer the worker
