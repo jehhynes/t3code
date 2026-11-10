@@ -1,0 +1,98 @@
+# Names every field, because `field(name)` answers a missing name with a NOT_FOUND that the
+# client cannot tell apart from a missing board.
+query BoardFields($owner: String!, $number: Int!) {
+  repositoryOwner(login: $owner) {
+    ... on ProjectV2Owner {
+      projectV2(number: $number) {
+        fields(first: 100) {
+          nodes {
+            __typename
+            ... on ProjectV2FieldCommon {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+# `blockedBy` lists closed blockers too; the reader keeps the open ones.
+query BoardIssues($q: String!, $status: String!, $cursor: String) {
+  search(query: $q, type: ISSUE, first: 100, after: $cursor) {
+    issueCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      ... on Issue {
+        number
+        title
+        url
+        state
+        stateReason
+        createdAt
+        updatedAt
+        closedAt
+        author {
+          login
+          avatarUrl
+          ... on User {
+            name
+          }
+        }
+        assignees(first: 20) {
+          nodes {
+            login
+            name
+            avatarUrl
+          }
+        }
+        labels(first: 20) {
+          nodes {
+            name
+            color
+          }
+        }
+        comments {
+          totalCount
+        }
+        repository {
+          nameWithOwner
+        }
+        projectItems(first: 20) {
+          nodes {
+            project {
+              number
+              owner {
+                ... on Organization {
+                  login
+                }
+                ... on User {
+                  login
+                }
+              }
+            }
+            fieldValueByName(name: $status) {
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                name
+              }
+            }
+          }
+        }
+        blockedBy(first: 50) {
+          nodes {
+            number
+            title
+            url
+            state
+            repository {
+              nameWithOwner
+            }
+          }
+        }
+      }
+    }
+  }
+}

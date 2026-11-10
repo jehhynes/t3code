@@ -403,6 +403,18 @@ export declare namespace Typename {
     | "TransferredEvent" | "Tree" | "UnassignedEvent" | "UnlabeledEvent" | "UnlockedEvent" | "UnmarkedAsDuplicateEvent"
     | "UnpinnedEvent" | "UnsubscribedEvent" | "User" | "UserBlockedEvent" | "UserContentEdit" | "UserList"
     | "UserNamespaceRepository" | "UserStatus" | "VerifiableDomain" | "Workflow" | "WorkflowRun" | "WorkflowRunFile"
+  /** Every possible `__typename` of union `ProjectV2FieldConfiguration`. */
+  export type ProjectV2FieldConfiguration =
+    | "ProjectV2Field" | "ProjectV2IterationField" | "ProjectV2MultiSelectField" | "ProjectV2SingleSelectField"
+  /** Every possible `__typename` of union `ProjectV2ItemFieldValue`. */
+  export type ProjectV2ItemFieldValue =
+    | "ProjectV2ItemFieldDateValue" | "ProjectV2ItemFieldIterationValue" | "ProjectV2ItemFieldLabelValue"
+    | "ProjectV2ItemFieldMilestoneValue" | "ProjectV2ItemFieldMultiSelectValue" | "ProjectV2ItemFieldNumberValue"
+    | "ProjectV2ItemFieldPullRequestValue" | "ProjectV2ItemFieldRepositoryValue" | "ProjectV2ItemFieldReviewerValue"
+    | "ProjectV2ItemFieldSingleSelectValue" | "ProjectV2ItemFieldTextValue" | "ProjectV2ItemFieldUserValue"
+    | "ProjectV2ItemIssueFieldValue"
+  /** Every possible `__typename` of interface `ProjectV2Owner`. */
+  export type ProjectV2Owner = "Issue" | "Organization" | "PullRequest" | "User"
   /** Every possible `__typename` of union `PullRequestTimelineItems`. */
   export type PullRequestTimelineItems =
     | "AddedToMergeQueueEvent" | "AddedToProjectEvent" | "AddedToProjectV2Event" | "AddedToStackEvent" | "AssignedEvent"

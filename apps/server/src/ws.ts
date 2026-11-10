@@ -1406,6 +1406,7 @@ const layerWsIssuesRpc = ServerWsIssuesRpcGroup.toLayer(
     const issueTrackers = yield* IssueTrackerConnections.IssueTrackerConnections;
     return ServerWsIssuesRpcGroup.of({
       [WS_METHODS.issuesList]: (input) => issues.list(input),
+      [WS_METHODS.issuesBoard]: () => issues.board,
       [WS_METHODS.issuesDetail]: (input) => issues.detail(input),
       [WS_METHODS.issuesComments]: (input) => issues.comments(input),
       [WS_METHODS.issuesTemplates]: (input) => issues.templates(input),

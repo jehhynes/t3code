@@ -79,7 +79,7 @@ function toIssueState(
   };
 }
 
-function toSummary(raw: Omit<Issues.NodesIssue, "__typename">): TrackerIssueSummary {
+export function toSummary(raw: Omit<Issues.NodesIssue, "__typename">): TrackerIssueSummary {
   return {
     key: String(raw.number),
     displayKey: `#${raw.number}`,

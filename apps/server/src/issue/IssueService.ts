@@ -9,6 +9,7 @@ import {
   IssueOperationError,
   IssueTrackerKind,
   IssueUnavailableError,
+  type IssueBoardResult,
   type IssueCandidates,
   type IssueCommentInput,
   type IssueCommentsPage,
@@ -41,9 +42,11 @@ import {
 } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
+import { readBoards } from "./issueBoard.ts";
 
 const DEFAULT_LIST_LIMIT = 50;
 const SCOPE_CONCURRENCY = 4;
@@ -156,6 +159,8 @@ export class IssueService extends Context.Service<
   IssueService,
   {
     readonly list: (input: IssueListInput) => Effect.Effect<IssueListResult, IssueError>;
+    /** Every open issue on each GitHub board named in settings, with its project or none. */
+    readonly board: Effect.Effect<IssueBoardResult, IssueError>;
     readonly detail: (input: IssueRef) => Effect.Effect<IssueDetail, IssueError>;
     readonly comments: (
       input: IssueCommentsPageInput,
@@ -187,6 +192,7 @@ const make = Effect.gen(function* () {
   const projects = yield* ProjectService.ProjectService;
   const repositoryIdentities = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
   const bindings = yield* IssueTrackerBindings.IssueTrackerBindingsRepository;
+  const serverSettings = yield* ServerSettings.ServerSettingsService;
 
   // Read per resolution so a binding saved in Settings applies without a restart.
   const resolveStandaloneBinding = (
@@ -427,6 +433,35 @@ const make = Effect.gen(function* () {
     };
   });
 
+  const board: IssueService["Service"]["board"] = Effect.gen(function* () {
+    const settings = yield* serverSettings.getSettings.pipe(
+      Effect.mapError(
+        (cause) =>
+          new IssueOperationError({
+            operation: "board",
+            detail: "The server settings could not be read.",
+            cause,
+          }),
+      ),
+    );
+    if (settings.githubBoards.length === 0) return { boards: [] };
+    const { supported } = yield* listProjects({});
+    const projectScopes = yield* Effect.forEach(
+      supported,
+      (candidate) =>
+        (candidate.project.repositoryIdentity != null
+          ? Effect.succeed(candidate.project.repositoryIdentity)
+          : repositoryIdentities.resolve(candidate.project.workspaceRoot)
+        ).pipe(Effect.map((identity) => ({ ...candidate, origin: identity?.origin ?? null }))),
+      { concurrency: SCOPE_CONCURRENCY },
+    );
+    return yield* readBoards({
+      boards: settings.githubBoards,
+      api: registry.get(IssueTrackerKind.make("github")),
+      projects: projectScopes,
+    });
+  }).pipe(Effect.withSpan("IssueService.board"));
+
   const detail: IssueService["Service"]["detail"] = (input) =>
     requireProject(input).pipe(
       Effect.flatMap((project) =>
@@ -650,6 +685,7 @@ const make = Effect.gen(function* () {
 
   return IssueService.of({
     list,
+    board,
     detail: traced("detail", detail),
     comments: traced("comments", comments),
     templates: traced("templates", templates),

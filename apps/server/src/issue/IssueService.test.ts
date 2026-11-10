@@ -11,6 +11,7 @@ import * as GitHubQuota from "@t3tools/source-control-github/server/GitHubQuota"
 import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
 import * as GitHubIssueTracker from "@t3tools/source-control-github/server/GitHubIssueTracker";
 import {
+  type GitHubBoardConfig,
   IssueTrackerKind,
   type IssueTrackerProjectBinding,
   SourceControlProviderKind,
@@ -28,6 +29,7 @@ import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
 import * as ProjectService from "../project/ProjectService.ts";
+import * as ServerSettings from "../serverSettings.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as IssueService from "./IssueService.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
@@ -149,6 +151,7 @@ function makeService(input: {
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly trackers: ReadonlyArray<IssueTrackerApi>;
   readonly bindings?: Record<string, IssueTrackerProjectBinding>;
+  readonly boards?: ReadonlyArray<GitHubBoardConfig>;
 }) {
   return IssueService.IssueService.pipe(
     Effect.provide(
@@ -178,6 +181,9 @@ function makeService(input: {
             }),
             Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
               resolve: () => Effect.succeed(null),
+            }),
+            ServerSettings.ServerSettingsService.layerTest({
+              githubBoards: [...(input.boards ?? [])],
             }),
           ),
         ),
@@ -450,6 +456,93 @@ describe("IssueService", () => {
       expect(next.entries.map((entry) => [entry.projectId, entry.key])).toEqual([["web", "4"]]);
       expect(next.nextCursors).toEqual({});
       expect(next.errors).toEqual([]);
+    }),
+  );
+
+  it.effect("lists each board's issues under the project for their repository, or none", () =>
+    Effect.gen(function* () {
+      const boardIssue = (key: string, scope: string) => ({
+        ...issue(key),
+        scope,
+        status: "Ready",
+        blockers: [],
+      });
+      const forkOf = (id: string, upstream: string, origin: string) => {
+        const shell = project({ id, repository: upstream });
+        return {
+          ...shell,
+          repositoryIdentity: {
+            ...shell.repositoryIdentity!,
+            origin: { canonicalKey: `github.com/${origin}`, displayName: origin },
+          },
+        };
+      };
+      const asked: string[] = [];
+      const service = yield* makeService({
+        projects: [
+          // Its origin is acme/web, but the project whose own repository is acme/web wins.
+          forkOf("other-fork", "acme/other", "acme/web"),
+          project({ id: "web", repository: "acme/web" }),
+          // A second checkout of the same repository; the first project serves it.
+          project({ id: "web-worktree", repository: "acme/web" }),
+          // A fork checkout resolves to its upstream; its origin's issues are its own.
+          forkOf("app-fork", "upstream/app", "me/app"),
+        ],
+        boards: [
+          { owner: "acme", number: 1, statusField: "Status" },
+          { owner: "acme", number: 2, statusField: "Stage" },
+        ],
+        trackers: [
+          fakeTracker({
+            listBoard: (input) => {
+              asked.push(`${input.host} ${input.owner}/${input.number} ${input.statusField}`);
+              return input.number === 1
+                ? Effect.succeed([
+                    boardIssue("1", "Acme/Web"),
+                    boardIssue("2", "acme/api"),
+                    boardIssue("3", "me/app"),
+                  ])
+                : Effect.fail(
+                    new IssueTrackerError({
+                      tracker: GITHUB,
+                      operation: "listBoard",
+                      reason: "failed",
+                      detail: 'Project acme/2 has no field named "Stage".',
+                    }),
+                  );
+            },
+          }),
+        ],
+      });
+
+      const { boards } = yield* service.board;
+
+      expect(asked.toSorted()).toEqual(["github.com acme/1 Status", "github.com acme/2 Stage"]);
+      expect(boards).toHaveLength(2);
+      expect(boards[0]).toMatchObject({ owner: "acme", number: 1, error: null });
+      expect(
+        boards[0]?.entries.map((entry) => [
+          entry.scope,
+          entry.key,
+          entry.projectId,
+          entry.projectTitle,
+        ]),
+      ).toEqual([
+        ["Acme/Web", "1", "web", "web"],
+        ["acme/api", "2", null, null],
+        ["me/app", "3", "app-fork", "app-fork"],
+      ]);
+      expect(boards[0]?.entries[0]).toMatchObject({ tracker: "github", host: "github.com" });
+      expect(boards[1]).toEqual({
+        owner: "acme",
+        number: 2,
+        statusField: "Stage",
+        entries: [],
+        error: 'Project acme/2 has no field named "Stage".',
+      });
+
+      const unconfigured = yield* makeService({ projects: [], trackers: [fakeTracker()] });
+      expect(yield* unconfigured.board).toEqual({ boards: [] });
     }),
   );
 });

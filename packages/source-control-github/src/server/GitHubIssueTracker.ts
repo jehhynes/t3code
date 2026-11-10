@@ -16,6 +16,8 @@ import { readIssueTemplates } from "./gitHubIssueTemplates.ts";
 import * as GitHubRequestPolicy from "./GitHubRequestPolicy.ts";
 import * as GitHubGraphQlClient from "./gitHubGraphQlClient.ts";
 import { IssuesGraphQLGroup } from "./issues.graphql.ts";
+import { BoardGraphQLGroup } from "./board.graphql.ts";
+import { readBoard } from "./gitHubBoard.ts";
 import { AddReaction, RemoveReaction } from "./pullRequestMutations.graphql.ts";
 import { gitHubReactionContent } from "./gitHubPullRequestJson.ts";
 import {
@@ -114,7 +116,7 @@ const FAILURE_DETAIL: Record<IssueTrackerError["reason"], string> = {
 };
 
 const group = GraphQLGroup.merge(
-  IssuesGraphQLGroup,
+  GraphQLGroup.merge(IssuesGraphQLGroup, BoardGraphQLGroup),
   GraphQLGroup.make(AddReaction, RemoveReaction),
 ).middleware(GitHubGraphQlClient.GitHubGraphQlAuth);
 
@@ -221,6 +223,17 @@ export const make = Effect.gen(function* () {
             })
             .pipe(graphql(input.host, "listIssues"), Effect.map(toIssueSearch)),
         ),
+      ),
+
+    listBoard: (input) =>
+      readBoard(
+        {
+          fields: (variables) =>
+            client.BoardFields(variables).pipe(graphql(input.host, "listBoard")),
+          issues: (variables) =>
+            client.BoardIssues(variables).pipe(graphql(input.host, "listBoard")),
+        },
+        input,
       ),
 
     getIssue: Effect.fn("GitHubIssueTracker.getIssue")(function* (input) {

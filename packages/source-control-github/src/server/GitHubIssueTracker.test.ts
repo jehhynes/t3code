@@ -526,4 +526,229 @@ Redact secrets before uploading.`);
       ]);
     }),
   );
+
+  describe("listBoard", () => {
+    const BOARD = { host: "github.com", owner: "Acme", number: 7, statusField: "Status" };
+    const STATUS_FIELD = { __typename: "ProjectV2SingleSelectField", name: "Status" };
+
+    function boardNode(number: number, repository: string, extra: Record<string, unknown> = {}) {
+      return {
+        __typename: "Issue",
+        number,
+        title: `Issue ${number}`,
+        url: `https://github.com/${repository}/issues/${number}`,
+        state: "OPEN",
+        stateReason: null,
+        createdAt: "2026-07-01T00:00:00Z",
+        updatedAt: "2026-07-02T00:00:00Z",
+        closedAt: null,
+        author: null,
+        assignees: { nodes: [] },
+        labels: { nodes: [] },
+        comments: { totalCount: 0 },
+        repository: { nameWithOwner: repository },
+        projectItems: { nodes: [] },
+        blockedBy: { nodes: [] },
+        ...extra,
+      };
+    }
+
+    function search(nodes: ReadonlyArray<unknown>, endCursor: string | null, issueCount = 101) {
+      return {
+        data: {
+          search: {
+            issueCount,
+            pageInfo: { hasNextPage: endCursor !== null, endCursor },
+            nodes,
+          },
+        },
+      };
+    }
+
+    /** Answers each operation from `answers`, recording the operations and variables sent. */
+    function boardTracker(
+      answers: {
+        readonly fields: unknown;
+        readonly pages?: ReadonlyArray<unknown>;
+      },
+      sent: Array<{ operation: string | undefined; variables: unknown }>,
+    ) {
+      let page = 0;
+      return GitHubIssueTracker.make.pipe(
+        Effect.provide(
+          transport(
+            HttpClient.make((request) => {
+              if (request.body._tag !== "Uint8Array")
+                return Effect.die("Expected a GraphQL JSON request.");
+              const { query, variables } = decodeVariables(
+                new TextDecoder().decode(request.body.body),
+              );
+              const operation = query.match(/query\s+(\w+)/)?.[1];
+              sent.push({ operation, variables });
+              const body = operation === "BoardFields" ? answers.fields : answers.pages?.[page++];
+              return Effect.succeed(
+                HttpClientResponse.fromWeb(
+                  request,
+                  new Response(JSON.stringify(body), {
+                    headers: { "content-type": "application/json" },
+                  }),
+                ),
+              );
+            }),
+          ),
+        ),
+      );
+    }
+
+    const fieldsAnswer = (nodes: ReadonlyArray<unknown>) => ({
+      data: {
+        repositoryOwner: { __typename: "Organization", projectV2: { fields: { nodes } } },
+      },
+    });
+
+    it.effect(
+      "reads every page of the board across repositories, with its status and open blockers",
+      () =>
+        Effect.gen(function* () {
+          const sent: Array<{ operation: string | undefined; variables: unknown }> = [];
+          const firstPage = Array.from({ length: 100 }, (_, index) =>
+            boardNode(index + 1, "acme/web"),
+          );
+          firstPage[0] = boardNode(1, "acme/web", {
+            projectItems: {
+              nodes: [
+                // Another board's item is ignored, though its status field shares the name.
+                {
+                  project: { number: 7, owner: { __typename: "User", login: "someone" } },
+                  fieldValueByName: {
+                    __typename: "ProjectV2ItemFieldSingleSelectValue",
+                    name: "Done",
+                  },
+                },
+                {
+                  project: { number: 7, owner: { __typename: "Organization", login: "acme" } },
+                  fieldValueByName: {
+                    __typename: "ProjectV2ItemFieldSingleSelectValue",
+                    name: "In progress",
+                  },
+                },
+              ],
+            },
+            blockedBy: {
+              nodes: [
+                {
+                  number: 3,
+                  title: "Open blocker",
+                  url: "https://github.com/acme/api/issues/3",
+                  state: "OPEN",
+                  repository: { nameWithOwner: "acme/api" },
+                },
+                {
+                  number: 4,
+                  title: "Closed blocker",
+                  url: "https://github.com/acme/web/issues/4",
+                  state: "CLOSED",
+                  repository: { nameWithOwner: "acme/web" },
+                },
+              ],
+            },
+          });
+          const api = yield* boardTracker(
+            {
+              fields: fieldsAnswer([{ __typename: "ProjectV2Field", name: "Title" }, STATUS_FIELD]),
+              pages: [
+                search(firstPage, "page-2"),
+                search([boardNode(101, "acme/api"), { __typename: "PullRequest" }], null),
+              ],
+            },
+            sent,
+          );
+
+          const issues = yield* api.listBoard!(BOARD);
+
+          expect(sent).toEqual([
+            { operation: "BoardFields", variables: { owner: "Acme", number: 7 } },
+            {
+              operation: "BoardIssues",
+              variables: { q: "is:issue is:open project:Acme/7", status: "Status", cursor: null },
+            },
+            {
+              operation: "BoardIssues",
+              variables: {
+                q: "is:issue is:open project:Acme/7",
+                status: "Status",
+                cursor: "page-2",
+              },
+            },
+          ]);
+          expect(issues).toHaveLength(101);
+          expect(new Set(issues.map((issue) => issue.scope))).toEqual(
+            new Set(["acme/web", "acme/api"]),
+          );
+          expect(issues[0]).toMatchObject({
+            key: "1",
+            scope: "acme/web",
+            status: "In progress",
+            blockers: [
+              {
+                scope: "acme/api",
+                key: "3",
+                displayKey: "acme/api#3",
+                title: "Open blocker",
+                url: "https://github.com/acme/api/issues/3",
+              },
+            ],
+          });
+          expect(issues[1]).toMatchObject({ status: null, blockers: [] });
+        }),
+    );
+
+    it.effect("refuses a board it cannot read whole before listing anything", () =>
+      Effect.gen(function* () {
+        const cases = [
+          {
+            fields: fieldsAnswer([{ __typename: "ProjectV2Field", name: "Title" }]),
+            detail: 'Project Acme/7 has no field named "Status".',
+            searches: 0,
+          },
+          {
+            fields: fieldsAnswer([{ __typename: "ProjectV2Field", name: "Status" }]),
+            detail:
+              'The "Status" field on project Acme/7 is a ProjectV2Field, not a single-select field.',
+            searches: 0,
+          },
+          {
+            fields: { data: { repositoryOwner: null } },
+            detail: "GitHub has no project Acme/7 that this account can read.",
+            searches: 0,
+          },
+          {
+            fields: {
+              data: { repositoryOwner: { __typename: "User", projectV2: null } },
+              errors: [{ type: "NOT_FOUND", message: "Could not resolve to a ProjectV2" }],
+            },
+            detail: "GitHub has no project Acme/7 that this account can read.",
+            searches: 0,
+          },
+          {
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([boardNode(1, "acme/web")], "page-2", 1_001)],
+            detail:
+              "Project Acme/7 has more than 1,000 open issues, which GitHub search cannot list.",
+            searches: 1,
+          },
+        ];
+        for (const { detail, searches, ...answers } of cases) {
+          const sent: Array<{ operation: string | undefined; variables: unknown }> = [];
+          const api = yield* boardTracker(answers, sent);
+          expect(yield* Effect.flip(api.listBoard!(BOARD))).toMatchObject({
+            operation: "listBoard",
+            reason: "failed",
+            detail,
+          });
+          expect(sent.filter((entry) => entry.operation === "BoardIssues")).toHaveLength(searches);
+        }
+      }),
+    );
+  });
 });

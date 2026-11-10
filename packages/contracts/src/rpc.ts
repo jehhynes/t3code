@@ -191,6 +191,7 @@ import {
   IssueUnavailableError,
   IssueUpdateInput,
 } from "./issue.ts";
+import { IssueBoardResult } from "./issueBoard.ts";
 import {
   GuestShareCreateError,
   GuestShareCreateInput,
@@ -623,6 +624,7 @@ export const WS_METHODS = {
 
   // Issue tracking methods
   issuesList: "issues.list",
+  issuesBoard: "issues.board",
   issuesDetail: "issues.detail",
   issuesComments: "issues.comments",
   issuesTemplates: "issues.templates",
@@ -1287,6 +1289,13 @@ const IssueRpcError = Schema.Union([
 const WsIssuesListRpc = Rpc.make(WS_METHODS.issuesList, {
   payload: IssueListInput,
   success: IssueListResult,
+  error: IssueRpcError,
+});
+
+/** Every open issue on each GitHub board named in settings. */
+const WsIssuesBoardRpc = Rpc.make(WS_METHODS.issuesBoard, {
+  payload: Schema.Struct({}),
+  success: IssueBoardResult,
   error: IssueRpcError,
 });
 
@@ -2202,6 +2211,7 @@ export class RpcScopeAuthorization extends RpcMiddleware.Service<RpcScopeAuthori
  */
 export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
+  WsIssuesBoardRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
   WsIssuesTemplatesRpc,

@@ -51,6 +51,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
 } from "./providerInstance.ts";
+import { GitHubBoardConfig } from "./issueBoard.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 import {
   CloudSpeechModelId,
@@ -1528,6 +1529,9 @@ export const ServerSettings = Schema.Struct({
   observability: ObservabilitySettings.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
   sourceControlHosts: Schema.Record(Schema.String, SourceControlHostSettings).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
+  ),
+  githubBoards: Schema.Array(GitHubBoardConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
   ),
   // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(

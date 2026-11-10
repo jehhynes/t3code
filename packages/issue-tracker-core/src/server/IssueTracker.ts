@@ -3,6 +3,8 @@
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 import type {
+  GitHubBoardConfig,
+  IssueBoardBlocker,
   IssueCandidates,
   IssueCapabilities,
   IssueComment,
@@ -87,6 +89,13 @@ export interface TrackerIssueDetail extends TrackerIssueSummary {
   readonly linkedPullRequests: ReadonlyArray<IssueLinkedPullRequest>;
 }
 
+/** An open issue on a board, which spans scopes, so each issue names its own. */
+export interface TrackerBoardIssue extends TrackerIssueSummary {
+  readonly scope: string;
+  readonly status: string | null;
+  readonly blockers: ReadonlyArray<IssueBoardBlocker>;
+}
+
 export interface IssueTrackerApi {
   readonly kind: IssueTrackerKind;
   readonly capabilities: IssueCapabilities;
@@ -109,6 +118,11 @@ export interface IssueTrackerApi {
       readonly cursor?: string | undefined;
     },
   ) => Effect.Effect<TrackerIssuePage, IssueTrackerError>;
+
+  /** Every open issue on a board, across its scopes; fails when the board cannot be read whole. */
+  readonly listBoard?: (
+    input: GitHubBoardConfig & { readonly host: string },
+  ) => Effect.Effect<ReadonlyArray<TrackerBoardIssue>, IssueTrackerError>;
 
   /** The issue with its first page of conversation, in one read where the tracker allows. */
   readonly getIssue: (input: IssueTarget) => Effect.Effect<TrackerIssueDetail, IssueTrackerError>;
