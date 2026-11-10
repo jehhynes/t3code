@@ -222,7 +222,9 @@ Fork work runs through the sb skills (`sb-plan`, `sb-build`, `sb-review`, `sb-sh
 - The base branch is `switchboard`, the fork's top layer; `switchboard-base` takes only upstream integrations, per the fork workflow in [issue #1](https://github.com/jehhynes/t3code/issues/1).
 - The project uses no Switchboard.
 - The planning documents are [issue #1](https://github.com/jehhynes/t3code/issues/1) for the fork's goals and fork-only constraints, [overview.md](docs/internals/overview.md) and the rest of `docs/internals/` for the architecture, and `docs/fork/`.
-- For fork work, the UAT that `sb-build` assigns to a subagent with the `browser-check` skill is the integrated pass that § Verifying requires; the primary agent starts the checkout's dev server before it assigns that subagent.
+- For fork work, the UAT that `sb-build` assigns to a subagent with the `browser-check` skill is the integrated pass that § Verifying requires; the agent that runs `sb-build` starts the checkout's dev server before it assigns that subagent, even when that agent is itself a subagent, which overrides § Verifying's rule that subagents do not launch dev servers.
+- Real provider turns run on the operator's subscription, so they need no approval; still prefer the `Replay (dev)` provider when it shows what the test needs.
+- Ship the smallest change that meets the issue's goal: treat an edge case, an optimization or a hardening idea as a follow-up for the plan's out-of-scope items unless it blocks the goal, risks data loss or a security defect, or breaks an existing behavior.
 - Put workflow state and scratch files in `.wip/` at the root of the current checkout; this overrides "Keep temporary working material outside the worktree" for fork work.
 - Invoke the `commit` skill before every commit, rebase or squash, and the `issues` skill before you create an issue, edit an issue's body or add an issue to the board.
 - Invoke the `cross-check` skill for each subagent review of code, a plan, a diagnosis, a draft or an instruction file.

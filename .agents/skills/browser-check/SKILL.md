@@ -1,11 +1,11 @@
 ---
 name: browser-check
-description: Drive T3 Code's web UI in a browser for UAT of the fork's work, reproductions or screenshots, in any harness; use test-t3-app for T3 Code's Browser panel and test-t3-mobile for the native app.
+description: Drive T3 Code's web UI in a browser for UAT of the fork's work, reproductions or screenshots.
 ---
 
 # Drive the web UI with the Playwright CLI
 
-Each agent drives its own browser through `playwright-cli`, so UAT runs in any harness and several agents can run it at the same time. This skill applies to sb workflow UAT, and there it replaces [test-t3-app](../test-t3-app/SKILL.md)'s rule against other automation systems; desktop renders the same web UI. For native mobile UAT, invoke the `test-t3-mobile` skill, which runs only inside T3 Code.
+Each agent drives its own browser through `playwright-cli`, so UAT runs in any harness and several agents can run it at the same time. For sb workflow UAT this skill replaces the `test-t3-app` skill, and its rule against other automation systems; desktop renders the same web UI, and native mobile UAT has no route outside the `test-t3-mobile` skill, so report a mobile-only check as a blocker.
 
 ## Setup
 
@@ -16,7 +16,7 @@ Each agent drives its own browser through `playwright-cli`, so UAT runs in any h
 ## Dev server
 
 - Use the dev server of the current checkout, whose web URL and startup pairing URL are in `.wip/dev.log`, per the `worktrees` skill.
-- When no dev server of the checkout answers, start it per the `environment-repair` skill when you are the session's primary agent, and keep it running until the session ends; as a subagent, return that as a blocker instead, per [AGENTS.md § Verifying](../../../AGENTS.md#verifying).
+- When no dev server of the checkout answers, return that as a blocker to the agent that assigned the check, which starts it per the `environment-repair` skill.
 - Never point a session at `~/.t3/userdata` or at another checkout's dev server.
 
 ## Sessions

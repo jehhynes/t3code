@@ -5,7 +5,7 @@ description: Create, remove or inspect a T3 Code fork worktree, or find a checko
 
 # Worktrees
 
-- Create a worktree for fork work with `git worktree add ../t3code.worktrees/<leaf> -b <type>/<issue>-<leaf> origin/switchboard` from the main checkout, then run `vp i` in it; T3 Code creates its own worktrees under `~/.t3/worktrees/` and sets them up with the setup script in [t3.json](../../../t3.json).
+- Create a worktree for fork work with `git worktree add ../t3code.worktrees/<leaf> -b <type>/<issue>-<leaf> origin/switchboard` from the main checkout, then run `vp i` in it.
 - Remove a worktree by its path with `scripts/fork/remove-worktree.sh <path>` from the main checkout ([the script](../../../scripts/fork/remove-worktree.sh)); it refuses a worktree with uncommitted or untracked changes, copies its `.wip/` to the main checkout's `.wip/shipped/<worktree folder>/`, stops the processes that listen on a port from inside it and runs `git worktree remove`, and it deletes no branch.
 - Make the removal the session's last command when the session runs in that worktree.
 - List the checkouts with `git worktree list`; the first entry is the main checkout.
