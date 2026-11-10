@@ -1,5 +1,10 @@
 import { createIssueEnvironmentAtoms } from "@t3tools/client-runtime/state/issues";
-import type { EnvironmentId, IssueListInput, IssueListResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  IssueBoardResult,
+  IssueListInput,
+  IssueListResult,
+} from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -61,6 +66,43 @@ export function useIssueList(targets: ReadonlyArray<IssueListTarget>): MergedIss
   const refresh = () => {
     for (const target of JSON.parse(key) as ReadonlyArray<IssueListTarget>) {
       appAtomRegistry.refresh(issueEnvironment.list(target));
+    }
+  };
+  return { ...view, refresh };
+}
+
+/**
+ * Each environment's GitHub boards, read across every connected environment as the listing is.
+ * An environment whose read fails shows no boards; a board that cannot be read says why itself.
+ */
+const mergedIssueBoardsFamily = Atom.family((key: string) =>
+  Atom.make((get) => {
+    const environmentIds = JSON.parse(key) as ReadonlyArray<EnvironmentId>;
+    const answers: Array<readonly [EnvironmentId, IssueBoardResult]> = [];
+    let isPending = false;
+    for (const environmentId of environmentIds) {
+      const result = get(issueEnvironment.board({ environmentId, input: {} }));
+      isPending ||= result.waiting;
+      const value = Option.getOrNull(AsyncResult.value(result));
+      if (value !== null) answers.push([environmentId, value]);
+    }
+    return { answers, isPending };
+  }).pipe(Atom.withLabel(`web-issues:boards:${key}`)),
+);
+
+const EMPTY_ISSUE_BOARDS = Atom.make({
+  answers: [] as ReadonlyArray<readonly [EnvironmentId, IssueBoardResult]>,
+  isPending: false,
+}).pipe(Atom.withLabel("web-issues:boards:empty"));
+
+export function useIssueBoards(environmentIds: ReadonlyArray<EnvironmentId>) {
+  const key = JSON.stringify(environmentIds);
+  const view = useAtomValue(
+    environmentIds.length === 0 ? EMPTY_ISSUE_BOARDS : mergedIssueBoardsFamily(key),
+  );
+  const refresh = () => {
+    for (const environmentId of JSON.parse(key) as ReadonlyArray<EnvironmentId>) {
+      appAtomRegistry.refresh(issueEnvironment.board({ environmentId, input: {} }));
     }
   };
   return { ...view, refresh };

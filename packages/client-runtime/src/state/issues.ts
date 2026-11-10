@@ -98,6 +98,12 @@ export function createIssueEnvironmentAtoms<R, E>(
       tag: WS_METHODS.issuesList,
       staleTimeMs: 30_000,
     }),
+    /** The GitHub boards the server names in settings, each read whole. */
+    board: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:issues:board",
+      tag: WS_METHODS.issuesBoard,
+      staleTimeMs: 30_000,
+    }),
     /**
      * A continuation of the listing, run as a command rather than read as a query: a page is
      * asked for once and laid over the rows held, and a refresh of the first page forgets it.

@@ -34,6 +34,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { IssueCreateDialog, type IssueCreateScope } from "~/components/issue/IssueCreateDialog";
+import { IssueBoardSection, boardEntryKey } from "~/components/issue/IssueBoardSection";
 import { IssueDetailPanel } from "~/components/issue/IssueDetailPanel";
 import {
   IssueRow,
@@ -89,7 +90,12 @@ import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime"
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useProjects } from "~/state/entities";
 import { useEnvironments, useIssuesSupported } from "~/state/environments";
-import { issueEnvironment, useIssueList, type IssueListTarget } from "~/state/issues";
+import {
+  issueEnvironment,
+  useIssueBoards,
+  useIssueList,
+  type IssueListTarget,
+} from "~/state/issues";
 import { useDebouncedValue } from "~/state/queries";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
@@ -336,7 +342,12 @@ function IssuesRoute() {
     input: listInput,
   }));
   const list = useIssueList(targets);
-  useLiveRefresh(list.refresh, { key: JSON.stringify(targets) });
+  const boards = useIssueBoards(capableEnvironments.map((e) => e.environmentId));
+  const refreshAll = () => {
+    list.refresh();
+    boards.refresh();
+  };
+  useLiveRefresh(refreshAll, { key: JSON.stringify(targets) });
 
   const [pages, setPages] = useState<ReadonlyMap<EnvironmentId, HeldPage>>(new Map());
   const held = holdPages(list.answers, pages);
@@ -523,6 +534,31 @@ function IssuesRoute() {
 
   const showTracker = groups.length > 1;
   const noneAnswered = list.answers.length === 0;
+
+  const selectedIssue = renderedSurface?.kind === "issue" ? renderedSurface : null;
+  // Boards hold open issues only, and their read has no involvement or tracker filter.
+  const boardSections: ReactNode =
+    issuesSupported && search.status !== "closed"
+      ? boards.answers.flatMap(([environmentId, answer]) =>
+          answer.boards.map((board) => (
+            <IssueBoardSection
+              key={`${environmentId}:${board.owner}/${board.number}`}
+              environmentId={environmentId}
+              board={board}
+              query={debouncedQuery}
+              {...(capableEnvironments.length > 1 && environmentLabels.has(environmentId)
+                ? { environmentLabel: environmentLabels.get(environmentId) }
+                : {})}
+              selectedKey={
+                selectedIssue?.environmentId === environmentId
+                  ? boardEntryKey({ ...selectedIssue, host: selectedIssue.host ?? "" })
+                  : null
+              }
+              onSelect={selectEntry}
+            />
+          )),
+        )
+      : null;
 
   const listBody: ReactNode = !issuesSupported ? (
     <PullRequestsUnavailableState
@@ -723,10 +759,10 @@ function IssuesRoute() {
                   size="icon"
                   variant="outline"
                   aria-label="Refresh issues"
-                  onClick={list.refresh}
-                  disabled={list.isPending}
+                  onClick={refreshAll}
+                  disabled={list.isPending || boards.isPending}
                 >
-                  <RefreshIcon size="md" refreshing={list.isPending} />
+                  <RefreshIcon size="md" refreshing={list.isPending || boards.isPending} />
                 </Button>
                 {createScopes.length > 0 ? (
                   <Button size="default" onClick={() => setCreateOpen(true)}>
@@ -735,6 +771,7 @@ function IssuesRoute() {
                   </Button>
                 ) : null}
               </div>
+              {boardSections}
               {listBody}
             </WorkspacePageContainer>
           </div>
