@@ -1,3 +1,8 @@
 {
-  "outputDir": ".wip/playwright-cli"
+  "outputDir": ".wip/playwright-cli",
+  "browser": {
+    "contextOptions": {
+      "colorScheme": "dark"
+    }
+  }
 }

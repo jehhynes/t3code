@@ -49,6 +49,14 @@ Each agent drives its own browser through `playwright-cli`, so UAT runs in any h
 - Click the turn's **Approve** button when the scenario asks for approval.
 - Treat a turn as finished only when `find "Stop generation"` matches nothing, because the reply's text can show before the turn ends, and never wait with a fixed sleep.
 
+## Color scheme
+
+- Run UAT in dark mode, which `.playwright/cli.config.json` sets for each session that `open` starts, and which the app follows while no theme is chosen in its Settings.
+- Run `--raw eval 'document.documentElement.classList.contains("dark")'` before each screenshot that does not show a theme behavior, and take the screenshot only when it returns `true`.
+- Run `set-color-scheme dark` when the check returns `false`, and choose a dark appearance in Settings > Appearance when the check still returns `false`, because a theme chosen there overrides the browser's color scheme.
+- Run `set-color-scheme light` to check the light theme, such as for a contrast defect, and `set-color-scheme dark` to return to dark mode.
+- Take a screenshot in light mode only when the screenshot shows a theme behavior.
+
 ## Screenshots
 
 - Save each screenshot with `screenshot --filename=<path>` to the path the task gives, and otherwise under `.wip/`.
