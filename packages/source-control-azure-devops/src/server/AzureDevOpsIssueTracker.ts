@@ -1,14 +1,5 @@
-/**
- * Azure DevOps work items as an issue tracker, over the same `az` the pull request reads use.
- *
- * Work items belong to a project rather than a repository, so the scope is `organization/project`
- * and every call names the organization explicitly instead of detecting it from the checkout.
- * Listing is a WIQL query with `timePrecision`, paged by a `(changedDate, id)` keyset cursor
- * because WIQL has no offset; the rest of the reads are `az boards` commands and `wit` REST
- * routes reached through `az devops invoke`, which signs in the way the extension does.
- *
- * @module source-control-azure-devops/server/AzureDevOpsIssueTracker
- */
+// Work items belong to a project, so the scope is `organization/project` and every call names
+// the organization. WIQL has no offset, so listing pages by a `(changedDate, id)` keyset cursor.
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Result from "effect/Result";

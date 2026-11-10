@@ -9,8 +9,6 @@ import {
   IssueOperationError,
   IssueTrackerKind,
   IssueUnavailableError,
-  pullRequestHostOf,
-  SourceControlProviderKind,
   type IssueCandidates,
   type IssueCommentInput,
   type IssueCommentsPage,
@@ -34,7 +32,7 @@ import {
   type ProjectId,
 } from "@t3tools/contracts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
-import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
+import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { parseIssueUrl } from "@t3tools/shared/issueUrl";
 import {
   IssueTrackerError,
@@ -102,10 +100,10 @@ export function resolveGitHostBinding(
   const scope =
     identity?.provider === "azure-devops"
       ? azureDevOpsProjectScope(identity.displayName)
-      : sourceControlRepositorySelector(identity);
+      : sourceControlDefinitions.repositorySelector(identity);
   const kind = identity?.provider;
   if (!identity || kind === undefined || kind === "unknown" || scope === null) return null;
-  const host = pullRequestHostOf(identity, SourceControlProviderKind.make(kind));
+  const host = sourceControlDefinitions.changeRequestHost(identity, kind);
   return {
     // Every repository of an Azure DevOps project shares its work items.
     canonicalKey:
@@ -301,8 +299,9 @@ const make = Effect.gen(function* () {
 
   const requireWritable = (ref: IssueScopeRef, operation: string) =>
     requireProject(ref).pipe(
-      Effect.flatMap((project) =>
-        project.writable ? Effect.succeed(project) : Effect.fail(readOnly(operation)),
+      Effect.filterOrFail(
+        (project) => project.writable,
+        () => readOnly(operation),
       ),
     );
 

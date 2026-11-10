@@ -4,7 +4,7 @@ import {
   mergeIssueListErrors,
   mergeIssueListPage,
 } from "@t3tools/client-runtime/state/issues";
-import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import type {
   EnvironmentId,
   IssueInvolvement,
@@ -19,7 +19,6 @@ import type {
   ProjectId,
   SourceControlProviderKind,
 } from "@t3tools/contracts";
-import { pullRequestHostOf } from "@t3tools/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import {
   AtSignIcon,
@@ -72,7 +71,6 @@ import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "~/c
 import { SidebarInset } from "~/components/ui/sidebar";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { isElectron } from "~/env";
-import { useEscapeToGoBack } from "~/hooks/useNavigateBack";
 import { useLiveRefresh } from "~/hooks/useLiveRefresh";
 import { shortcutLabelForCommand } from "~/keybindings";
 import { isTerminalFocused } from "~/lib/terminalFocus";
@@ -244,7 +242,9 @@ function groupIssues(
         (p) => p.environmentId === environmentId && p.id === error.projectId,
       );
       const kind = project?.repositoryIdentity?.provider as SourceControlProviderKind | undefined;
-      const host = kind ? pullRequestHostOf(project?.repositoryIdentity, kind) : null;
+      const host = kind
+        ? sourceControlClients.changeRequestHost(project?.repositoryIdentity, kind)
+        : null;
       const group =
         (host ? byTracker.get(`${kind} ${host.toLowerCase()}`) : undefined) ??
         [...byTracker.values()][0];
@@ -286,9 +286,9 @@ function createScopesFor(
       if (project.environmentId !== environmentId) continue;
       const identity = project.repositoryIdentity;
       const kind = identity?.provider as SourceControlProviderKind | undefined;
-      const scope = sourceControlRepositorySelector(identity);
+      const scope = sourceControlClients.repositorySelector(identity);
       if (!identity || !kind || scope === null) continue;
-      const host = pullRequestHostOf(identity, kind);
+      const host = sourceControlClients.changeRequestHost(identity, kind);
       const tracker = page.answer.trackers.find(
         (t) => String(t.tracker) === kind && t.host.toLowerCase() === host.toLowerCase(),
       );
@@ -317,11 +317,6 @@ function IssuesRoute() {
   const projects = useProjects();
   const issuesSupported = useIssuesSupported();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  useEscapeToGoBack();
-
-  useEffect(() => {
-    writeIssueListPreferences(issueListPreferences(search));
-  }, [search]);
 
   const capableEnvironments = environments.filter(
     (environment) => environment.serverConfig?.environment.capabilities.issues === true,
@@ -384,7 +379,17 @@ function IssuesRoute() {
 
   const hostOptions = hostOptionsFor(groups);
 
-  const updateSearch = (patch: { [Key in keyof IssuesSearch]?: IssuesSearch[Key] | undefined }) =>
+  const updateSearch = (patch: {
+    [Key in keyof IssuesSearch]?: IssuesSearch[Key] | undefined;
+  }) => {
+    writeIssueListPreferences(
+      issueListPreferences({
+        ...search,
+        ...patch,
+        who: patch.who ?? search.who,
+        status: patch.status ?? search.status,
+      }),
+    );
     void navigate({
       search: (previous: IssuesSearch): IssuesSearch => {
         const next = { ...previous, ...patch };
@@ -403,6 +408,7 @@ function IssuesRoute() {
         };
       },
     });
+  };
   const clearedSelection = {
     selectedEnvironmentId: undefined,
     selectedProjectId: undefined,
@@ -464,6 +470,7 @@ function IssuesRoute() {
   };
 
   // A link into the page names an issue before any row was pressed.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- opens the URL-linked issue in the right panel store
   useEffect(() => {
     if (
       rightPanelRef === null ||
@@ -679,6 +686,7 @@ function IssuesRoute() {
                       (debouncedQuery.length > 0 && list.isPending)
                     }
                     onChange={(q) => updateSearch({ q: q || undefined })}
+                    onSubmit={(q) => updateSearch({ q: q || undefined })}
                   />
                 </div>
                 <ToggleGroup

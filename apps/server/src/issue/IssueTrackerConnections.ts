@@ -1,14 +1,6 @@
-/**
- * Standalone issue trackers (Linear, Jira) as the settings page manages them: one credential per
- * tracker kind in the secret store, with its status read live from the tracker, and the
- * per-project binding that puts a tracker's scope beside the project's git-host issues.
- * Disconnecting clears the bindings that pointed at the tracker.
- *
- * Nothing here knows which trackers exist: the registry lists them and each driver's descriptor
- * says what to call the credential and the scope. Adding a tracker adds no code here.
- *
- * @module issue/IssueTrackerConnections
- */
+// Standalone tracker credentials (one per kind, in the secret store) and per-project bindings.
+// Disconnecting clears the tracker's bindings. Driver descriptors name the credential and scope,
+// so adding a tracker adds no code here.
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";

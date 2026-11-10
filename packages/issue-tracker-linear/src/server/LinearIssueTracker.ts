@@ -1,15 +1,6 @@
-/**
- * Linear as an issue tracker. A scope is a team key (`ENG`), an issue key is its identifier
- * (`ENG-123`), and Linear's workflow states travel by name with the category read off their
- * type: `completed` and `canceled` are closed, every other type is open. Closing therefore picks
- * the team's first state of the matching type, which is what Linear's own "Done" and "Canceled"
- * buttons do.
- *
- * Templates: a plain template becomes a draft here; one with form fields or rich (non-markdown)
- * content opens the exact template in Linear instead, through the template list's contact links.
- *
- * @module issue-tracker-linear/server/LinearIssueTracker
- */
+// Scope is a team key, key is the identifier (`ENG-123`). `completed`/`canceled` state types are
+// closed; closing picks the team's first state of that type, as Linear's own buttons do. Templates
+// with form fields or rich content open in Linear instead of becoming a draft.
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import {

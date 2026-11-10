@@ -1,15 +1,5 @@
-/**
- * Issues linked to threads: the link and unlink commands every surface (web, MCP) goes through,
- * and the snapshot each link carries so the thread can show a title and state without a tracker
- * read.
- *
- * There is no poller. A snapshot is written when the link is made, refreshed when the thread's
- * turn ends — the agent may have closed or renamed the issue — and refreshed when the user opens
- * the thread after the snapshot has gone stale. Those are the moments the state can have changed
- * and someone is looking; a sweep would spend tracker reads on threads nobody is reading.
- *
- * @module orchestration-v2/ThreadIssueService
- */
+// Snapshots refresh on link, at turn end and on a stale visit, when state may have changed and
+// someone is looking. No poller: a sweep would spend tracker reads on threads nobody is reading.
 import {
   CommandId,
   threadIssueKeysEqual,
@@ -26,7 +16,7 @@ import {
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -91,10 +81,10 @@ function isStale(link: ThreadIssueLink, nowMs: number): boolean {
 const make = Effect.gen(function* () {
   const orchestrator = yield* Orchestrator.OrchestratorV2;
   const issues = yield* IssueService.IssueService;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
 
   const commandId = (tag: string, threadId: ThreadId) =>
-    crypto.randomUUIDv4().pipe(
+    random.uuidV4().pipe(
       Effect.orDie,
       Effect.map((uuid) => CommandId.make(`server:thread-issue-${tag}:${threadId}:${uuid}`)),
     );

@@ -313,6 +313,8 @@ export declare namespace Typename {
   export type Assignee = "Bot" | "Mannequin" | "Organization" | "User"
   /** Every possible `__typename` of interface `GitObject`. */
   export type GitObject = "Blob" | "Commit" | "Tag" | "Tree"
+  /** Every possible `__typename` of union `IssueOrPullRequest`. */
+  export type IssueOrPullRequest = "Issue" | "PullRequest"
   /** Every possible `__typename` of union `IssueTimelineItems`. */
   export type IssueTimelineItems =
     | "AddedToProjectEvent" | "AddedToProjectV2Event" | "AssignedEvent" | "BlockedByAddedEvent"

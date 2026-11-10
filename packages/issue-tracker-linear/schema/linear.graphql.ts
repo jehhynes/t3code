@@ -497,21 +497,21 @@ export const InitiativeUpdatesFilter: Schema.Codec<InitiativeUpdatesFilter, Init
 })
 export interface InitiativeUpdatesFilter {
   /** Compound filters, all of which need to be matched by the initiative updates. */
-  readonly and?: ReadonlyArray<InitiativeUpdatesFilter> | null | undefined
+  readonly and?: readonly InitiativeUpdatesFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the initiative updates. */
-  readonly or?: ReadonlyArray<InitiativeUpdatesFilter> | null | undefined
+  readonly or?: readonly InitiativeUpdatesFilter[] | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface InitiativeUpdatesFilterEncoded {
-  readonly and?: ReadonlyArray<InitiativeUpdatesFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeUpdatesFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<InitiativeUpdatesFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeUpdatesFilterEncoded[] | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
 
@@ -528,7 +528,7 @@ export const InitiativeUpdatesCollectionFilter: Schema.Codec<InitiativeUpdatesCo
 })
 export interface InitiativeUpdatesCollectionFilter {
   /** Compound filters, all of which need to be matched by the initiative update. */
-  readonly and?: ReadonlyArray<InitiativeUpdatesCollectionFilter> | null | undefined
+  readonly and?: readonly InitiativeUpdatesCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all initiative updates. */
@@ -538,19 +538,19 @@ export interface InitiativeUpdatesCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the update. */
-  readonly or?: ReadonlyArray<InitiativeUpdatesCollectionFilter> | null | undefined
+  readonly or?: readonly InitiativeUpdatesCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some initiative updates. */
   readonly some?: InitiativeUpdatesFilter | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface InitiativeUpdatesCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<InitiativeUpdatesCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeUpdatesCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: InitiativeUpdatesFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<InitiativeUpdatesCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeUpdatesCollectionFilterEncoded[] | null | undefined
   readonly some?: InitiativeUpdatesFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -599,7 +599,7 @@ export const ReactionFilter: Schema.Codec<ReactionFilter, ReactionFilterEncoded>
 })
 export interface ReactionFilter {
   /** Compound filters, all of which need to be matched by the reaction. */
-  readonly and?: ReadonlyArray<ReactionFilter> | null | undefined
+  readonly and?: readonly ReactionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the reactions custom emoji. */
@@ -609,17 +609,17 @@ export interface ReactionFilter {
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the reaction. */
-  readonly or?: ReadonlyArray<ReactionFilter> | null | undefined
+  readonly or?: readonly ReactionFilter[] | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ReactionFilterEncoded {
-  readonly and?: ReadonlyArray<ReactionFilterEncoded> | null | undefined
+  readonly and?: readonly ReactionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly customEmojiId?: typeof IDComparator.Encoded | null | undefined
   readonly emoji?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReactionFilterEncoded> | null | undefined
+  readonly or?: readonly ReactionFilterEncoded[] | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
 
@@ -638,7 +638,7 @@ export const ReactionCollectionFilter: Schema.Codec<ReactionCollectionFilter, Re
 })
 export interface ReactionCollectionFilter {
   /** Compound filters, all of which need to be matched by the reaction. */
-  readonly and?: ReadonlyArray<ReactionCollectionFilter> | null | undefined
+  readonly and?: readonly ReactionCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the reactions custom emoji. */
@@ -652,21 +652,21 @@ export interface ReactionCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the reaction. */
-  readonly or?: ReadonlyArray<ReactionCollectionFilter> | null | undefined
+  readonly or?: readonly ReactionCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some reactions. */
   readonly some?: ReactionFilter | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ReactionCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ReactionCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ReactionCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly customEmojiId?: typeof IDComparator.Encoded | null | undefined
   readonly emoji?: typeof StringComparator.Encoded | null | undefined
   readonly every?: ReactionFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReactionCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ReactionCollectionFilterEncoded[] | null | undefined
   readonly some?: ReactionFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -761,7 +761,7 @@ export const ReleaseStageFilter: Schema.Codec<ReleaseStageFilter, ReleaseStageFi
 })
 export interface ReleaseStageFilter {
   /** Compound filters, all of which need to be matched by the stage. */
-  readonly and?: ReadonlyArray<ReleaseStageFilter> | null | undefined
+  readonly and?: readonly ReleaseStageFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -769,18 +769,18 @@ export interface ReleaseStageFilter {
   /** Comparator for the stage name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the stage. */
-  readonly or?: ReadonlyArray<ReleaseStageFilter> | null | undefined
+  readonly or?: readonly ReleaseStageFilter[] | null | undefined
   /** Comparator for the stage type. */
   readonly type?: ReleaseStageTypeComparator | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ReleaseStageFilterEncoded {
-  readonly and?: ReadonlyArray<ReleaseStageFilterEncoded> | null | undefined
+  readonly and?: readonly ReleaseStageFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReleaseStageFilterEncoded> | null | undefined
+  readonly or?: readonly ReleaseStageFilterEncoded[] | null | undefined
   readonly type?: typeof ReleaseStageTypeComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -870,7 +870,7 @@ export const ProjectUpdatesFilter: Schema.Codec<ProjectUpdatesFilter, ProjectUpd
 })
 export interface ProjectUpdatesFilter {
   /** Compound filters, all of which need to be matched by the project updates. */
-  readonly and?: ReadonlyArray<ProjectUpdatesFilter> | null | undefined
+  readonly and?: readonly ProjectUpdatesFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the project update health. */
@@ -878,16 +878,16 @@ export interface ProjectUpdatesFilter {
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the project updates. */
-  readonly or?: ReadonlyArray<ProjectUpdatesFilter> | null | undefined
+  readonly or?: readonly ProjectUpdatesFilter[] | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectUpdatesFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectUpdatesFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectUpdatesFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly health?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectUpdatesFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectUpdatesFilterEncoded[] | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
 
@@ -905,7 +905,7 @@ export const ProjectUpdatesCollectionFilter: Schema.Codec<ProjectUpdatesCollecti
 })
 export interface ProjectUpdatesCollectionFilter {
   /** Compound filters, all of which need to be matched by the project update. */
-  readonly and?: ReadonlyArray<ProjectUpdatesCollectionFilter> | null | undefined
+  readonly and?: readonly ProjectUpdatesCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all updates. */
@@ -917,20 +917,20 @@ export interface ProjectUpdatesCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the update. */
-  readonly or?: ReadonlyArray<ProjectUpdatesCollectionFilter> | null | undefined
+  readonly or?: readonly ProjectUpdatesCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some updates. */
   readonly some?: ProjectUpdatesFilter | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectUpdatesCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectUpdatesCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectUpdatesCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: ProjectUpdatesFilterEncoded | null | undefined
   readonly health?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectUpdatesCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectUpdatesCollectionFilterEncoded[] | null | undefined
   readonly some?: ProjectUpdatesFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -998,7 +998,7 @@ export const CustomerStatusFilter: Schema.Codec<CustomerStatusFilter, CustomerSt
 })
 export interface CustomerStatusFilter {
   /** Compound filters, all of which need to be matched by the customer status. */
-  readonly and?: ReadonlyArray<CustomerStatusFilter> | null | undefined
+  readonly and?: readonly CustomerStatusFilter[] | null | undefined
   /** Comparator for the customer status color. */
   readonly color?: StringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -1010,7 +1010,7 @@ export interface CustomerStatusFilter {
   /** Comparator for the customer status name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which needs to be matched by the customer status. */
-  readonly or?: ReadonlyArray<CustomerStatusFilter> | null | undefined
+  readonly or?: readonly CustomerStatusFilter[] | null | undefined
   /** Comparator for the customer status position. */
   readonly position?: NumberComparator | null | undefined
   /** Comparator for the customer status type. */
@@ -1019,13 +1019,13 @@ export interface CustomerStatusFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface CustomerStatusFilterEncoded {
-  readonly and?: ReadonlyArray<CustomerStatusFilterEncoded> | null | undefined
+  readonly and?: readonly CustomerStatusFilterEncoded[] | null | undefined
   readonly color?: typeof StringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<CustomerStatusFilterEncoded> | null | undefined
+  readonly or?: readonly CustomerStatusFilterEncoded[] | null | undefined
   readonly position?: typeof NumberComparator.Encoded | null | undefined
   readonly type?: typeof StringComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -1045,7 +1045,7 @@ export const CustomerTierFilter: Schema.Codec<CustomerTierFilter, CustomerTierFi
 })
 export interface CustomerTierFilter {
   /** Compound filters, all of which need to be matched by the customer tier. */
-  readonly and?: ReadonlyArray<CustomerTierFilter> | null | undefined
+  readonly and?: readonly CustomerTierFilter[] | null | undefined
   /** Comparator for the customer tier color. */
   readonly color?: StringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -1057,20 +1057,20 @@ export interface CustomerTierFilter {
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which needs to be matched by the customer tier. */
-  readonly or?: ReadonlyArray<CustomerTierFilter> | null | undefined
+  readonly or?: readonly CustomerTierFilter[] | null | undefined
   /** Comparator for the customer tier position. */
   readonly position?: NumberComparator | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface CustomerTierFilterEncoded {
-  readonly and?: ReadonlyArray<CustomerTierFilterEncoded> | null | undefined
+  readonly and?: readonly CustomerTierFilterEncoded[] | null | undefined
   readonly color?: typeof StringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof StringComparator.Encoded | null | undefined
   readonly displayName?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<CustomerTierFilterEncoded> | null | undefined
+  readonly or?: readonly CustomerTierFilterEncoded[] | null | undefined
   readonly position?: typeof NumberComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -1160,7 +1160,7 @@ export interface IssueFilter {
   /** [Internal] Age (created -> now) comparator, defined if the issue is still open. */
   readonly ageTime?: NullableDurationComparator | null | undefined
   /** Compound filters, all of which need to be matched by the issue. */
-  readonly and?: ReadonlyArray<IssueFilter> | null | undefined
+  readonly and?: readonly IssueFilter[] | null | undefined
   /** Comparator for the issues archived at date. */
   readonly archivedAt?: NullableDateComparator | null | undefined
   /** Filters that the issues assignee must satisfy. */
@@ -1242,7 +1242,7 @@ export interface IssueFilter {
   /** Comparator for the issues number. */
   readonly number?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the issue. */
-  readonly or?: ReadonlyArray<IssueFilter> | null | undefined
+  readonly or?: readonly IssueFilter[] | null | undefined
   /** Filters that the issue parent must satisfy. */
   readonly parent?: NullableIssueFilter | null | undefined
   /** Comparator for the issues priority. 0 = No priority, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low. */
@@ -1296,7 +1296,7 @@ export interface IssueFilterEncoded {
   readonly addedToCycleAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly addedToCyclePeriod?: typeof CyclePeriodComparator.Encoded | null | undefined
   readonly ageTime?: typeof NullableDurationComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<IssueFilterEncoded> | null | undefined
+  readonly and?: readonly IssueFilterEncoded[] | null | undefined
   readonly archivedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly assignee?: NullableUserFilterEncoded | null | undefined
   readonly attachments?: AttachmentCollectionFilterEncoded | null | undefined
@@ -1337,7 +1337,7 @@ export interface IssueFilterEncoded {
   readonly leadTime?: typeof NullableDurationComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly number?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<IssueFilterEncoded> | null | undefined
+  readonly or?: readonly IssueFilterEncoded[] | null | undefined
   readonly parent?: NullableIssueFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
@@ -1377,7 +1377,7 @@ export const ActivityCollectionFilter: Schema.Codec<ActivityCollectionFilter, Ac
 })
 export interface ActivityCollectionFilter {
   /** Compound filters, all of which need to be matched by the activity. */
-  readonly and?: ReadonlyArray<ActivityCollectionFilter> | null | undefined
+  readonly and?: readonly ActivityCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all activities. */
@@ -1387,7 +1387,7 @@ export interface ActivityCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the activity. */
-  readonly or?: ReadonlyArray<ActivityCollectionFilter> | null | undefined
+  readonly or?: readonly ActivityCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some activities. */
   readonly some?: ActivityFilter | null | undefined
   /** Comparator for the updated at date. */
@@ -1396,12 +1396,12 @@ export interface ActivityCollectionFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface ActivityCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ActivityCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ActivityCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: ActivityFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ActivityCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ActivityCollectionFilterEncoded[] | null | undefined
   readonly some?: ActivityFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
   readonly user?: UserFilterEncoded | null | undefined
@@ -1418,23 +1418,23 @@ export const ActivityFilter: Schema.Codec<ActivityFilter, ActivityFilterEncoded>
 })
 export interface ActivityFilter {
   /** Compound filters, all of which need to be matched by the activity. */
-  readonly and?: ReadonlyArray<ActivityFilter> | null | undefined
+  readonly and?: readonly ActivityFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the activity. */
-  readonly or?: ReadonlyArray<ActivityFilter> | null | undefined
+  readonly or?: readonly ActivityFilter[] | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
   /** Filters that the activity's user must satisfy. */
   readonly user?: UserFilter | null | undefined
 }
 export interface ActivityFilterEncoded {
-  readonly and?: ReadonlyArray<ActivityFilterEncoded> | null | undefined
+  readonly and?: readonly ActivityFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ActivityFilterEncoded> | null | undefined
+  readonly or?: readonly ActivityFilterEncoded[] | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
   readonly user?: UserFilterEncoded | null | undefined
 }
@@ -1464,7 +1464,7 @@ export interface UserFilter {
   /** Comparator for the user's admin status. */
   readonly admin?: BooleanComparator | null | undefined
   /** Compound filters, all of which need to be matched by the user. */
-  readonly and?: ReadonlyArray<UserFilter> | null | undefined
+  readonly and?: readonly UserFilter[] | null | undefined
   /** Comparator for the user's app status. */
   readonly app?: BooleanComparator | null | undefined
   /** Filters that the users assigned issues must satisfy. */
@@ -1486,7 +1486,7 @@ export interface UserFilter {
   /** Comparator for the user's name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the user. */
-  readonly or?: ReadonlyArray<UserFilter> | null | undefined
+  readonly or?: readonly UserFilter[] | null | undefined
   /** Comparator for the user's owner status. */
   readonly owner?: BooleanComparator | null | undefined
   /** Comparator for the updated at date. */
@@ -1495,7 +1495,7 @@ export interface UserFilter {
 export interface UserFilterEncoded {
   readonly active?: typeof BooleanComparator.Encoded | null | undefined
   readonly admin?: typeof BooleanComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<UserFilterEncoded> | null | undefined
+  readonly and?: readonly UserFilterEncoded[] | null | undefined
   readonly app?: typeof BooleanComparator.Encoded | null | undefined
   readonly assignedIssues?: IssueCollectionFilterEncoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -1506,7 +1506,7 @@ export interface UserFilterEncoded {
   readonly isInvited?: typeof BooleanComparator.Encoded | null | undefined
   readonly isMe?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<UserFilterEncoded> | null | undefined
+  readonly or?: readonly UserFilterEncoded[] | null | undefined
   readonly owner?: typeof BooleanComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -1599,7 +1599,7 @@ export interface IssueCollectionFilter {
   /** [Internal] Age (created -> now) comparator, defined if the issue is still open. */
   readonly ageTime?: NullableDurationComparator | null | undefined
   /** Compound filters, all of which need to be matched by the issue. */
-  readonly and?: ReadonlyArray<IssueCollectionFilter> | null | undefined
+  readonly and?: readonly IssueCollectionFilter[] | null | undefined
   /** Comparator for the issues archived at date. */
   readonly archivedAt?: NullableDateComparator | null | undefined
   /** Filters that the issues assignee must satisfy. */
@@ -1685,7 +1685,7 @@ export interface IssueCollectionFilter {
   /** Comparator for the issues number. */
   readonly number?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the issue. */
-  readonly or?: ReadonlyArray<IssueCollectionFilter> | null | undefined
+  readonly or?: readonly IssueCollectionFilter[] | null | undefined
   /** Filters that the issue parent must satisfy. */
   readonly parent?: NullableIssueFilter | null | undefined
   /** Comparator for the issues priority. 0 = No priority, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low. */
@@ -1741,7 +1741,7 @@ export interface IssueCollectionFilterEncoded {
   readonly addedToCycleAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly addedToCyclePeriod?: typeof CyclePeriodComparator.Encoded | null | undefined
   readonly ageTime?: typeof NullableDurationComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<IssueCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly IssueCollectionFilterEncoded[] | null | undefined
   readonly archivedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly assignee?: NullableUserFilterEncoded | null | undefined
   readonly attachments?: AttachmentCollectionFilterEncoded | null | undefined
@@ -1784,7 +1784,7 @@ export interface IssueCollectionFilterEncoded {
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly number?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<IssueCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly IssueCollectionFilterEncoded[] | null | undefined
   readonly parent?: NullableIssueFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
@@ -1837,7 +1837,7 @@ export interface NullableUserFilter {
   /** Comparator for the user's admin status. */
   readonly admin?: BooleanComparator | null | undefined
   /** Compound filters, all of which need to be matched by the user. */
-  readonly and?: ReadonlyArray<NullableUserFilter> | null | undefined
+  readonly and?: readonly NullableUserFilter[] | null | undefined
   /** Comparator for the user's app status. */
   readonly app?: BooleanComparator | null | undefined
   /** Filters that the users assigned issues must satisfy. */
@@ -1861,7 +1861,7 @@ export interface NullableUserFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the user. */
-  readonly or?: ReadonlyArray<NullableUserFilter> | null | undefined
+  readonly or?: readonly NullableUserFilter[] | null | undefined
   /** Comparator for the user's owner status. */
   readonly owner?: BooleanComparator | null | undefined
   /** Comparator for the updated at date. */
@@ -1870,7 +1870,7 @@ export interface NullableUserFilter {
 export interface NullableUserFilterEncoded {
   readonly active?: typeof BooleanComparator.Encoded | null | undefined
   readonly admin?: typeof BooleanComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<NullableUserFilterEncoded> | null | undefined
+  readonly and?: readonly NullableUserFilterEncoded[] | null | undefined
   readonly app?: typeof BooleanComparator.Encoded | null | undefined
   readonly assignedIssues?: IssueCollectionFilterEncoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -1882,7 +1882,7 @@ export interface NullableUserFilterEncoded {
   readonly isMe?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableUserFilterEncoded> | null | undefined
+  readonly or?: readonly NullableUserFilterEncoded[] | null | undefined
   readonly owner?: typeof BooleanComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -1905,7 +1905,7 @@ export const AttachmentCollectionFilter: Schema.Codec<AttachmentCollectionFilter
 })
 export interface AttachmentCollectionFilter {
   /** Compound filters, all of which need to be matched by the attachment. */
-  readonly and?: ReadonlyArray<AttachmentCollectionFilter> | null | undefined
+  readonly and?: readonly AttachmentCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the attachments creator must satisfy. */
@@ -1917,7 +1917,7 @@ export interface AttachmentCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the attachment. */
-  readonly or?: ReadonlyArray<AttachmentCollectionFilter> | null | undefined
+  readonly or?: readonly AttachmentCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some attachments. */
   readonly some?: AttachmentFilter | null | undefined
   /** Comparator for the source type. */
@@ -1932,13 +1932,13 @@ export interface AttachmentCollectionFilter {
   readonly url?: StringComparator | null | undefined
 }
 export interface AttachmentCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<AttachmentCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly AttachmentCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly every?: AttachmentFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<AttachmentCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly AttachmentCollectionFilterEncoded[] | null | undefined
   readonly some?: AttachmentFilterEncoded | null | undefined
   readonly sourceType?: typeof SourceTypeComparator.Encoded | null | undefined
   readonly subtitle?: typeof NullableStringComparator.Encoded | null | undefined
@@ -1962,7 +1962,7 @@ export const AttachmentFilter: Schema.Codec<AttachmentFilter, AttachmentFilterEn
 })
 export interface AttachmentFilter {
   /** Compound filters, all of which need to be matched by the attachment. */
-  readonly and?: ReadonlyArray<AttachmentFilter> | null | undefined
+  readonly and?: readonly AttachmentFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the attachments creator must satisfy. */
@@ -1970,7 +1970,7 @@ export interface AttachmentFilter {
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the attachment. */
-  readonly or?: ReadonlyArray<AttachmentFilter> | null | undefined
+  readonly or?: readonly AttachmentFilter[] | null | undefined
   /** Comparator for the source type. */
   readonly sourceType?: SourceTypeComparator | null | undefined
   /** Comparator for the subtitle. */
@@ -1983,11 +1983,11 @@ export interface AttachmentFilter {
   readonly url?: StringComparator | null | undefined
 }
 export interface AttachmentFilterEncoded {
-  readonly and?: ReadonlyArray<AttachmentFilterEncoded> | null | undefined
+  readonly and?: readonly AttachmentFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<AttachmentFilterEncoded> | null | undefined
+  readonly or?: readonly AttachmentFilterEncoded[] | null | undefined
   readonly sourceType?: typeof SourceTypeComparator.Encoded | null | undefined
   readonly subtitle?: typeof NullableStringComparator.Encoded | null | undefined
   readonly title?: typeof StringComparator.Encoded | null | undefined
@@ -2019,7 +2019,7 @@ export const CommentCollectionFilter: Schema.Codec<CommentCollectionFilter, Comm
 })
 export interface CommentCollectionFilter {
   /** Compound filters, all of which need to be matched by the comment. */
-  readonly and?: ReadonlyArray<CommentCollectionFilter> | null | undefined
+  readonly and?: readonly CommentCollectionFilter[] | null | undefined
   /** Comparator for the comment's body. */
   readonly body?: StringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -2041,7 +2041,7 @@ export interface CommentCollectionFilter {
   /** Filters that the comment's customer needs must satisfy. */
   readonly needs?: CustomerNeedCollectionFilter | null | undefined
   /** Compound filters, one of which need to be matched by the comment. */
-  readonly or?: ReadonlyArray<CommentCollectionFilter> | null | undefined
+  readonly or?: readonly CommentCollectionFilter[] | null | undefined
   /** Filters that the comment parent must satisfy. */
   readonly parent?: NullableCommentFilter | null | undefined
   /** [Internal] Filters that the comment's project must satisfy. */
@@ -2058,7 +2058,7 @@ export interface CommentCollectionFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface CommentCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<CommentCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly CommentCollectionFilterEncoded[] | null | undefined
   readonly body?: typeof StringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly documentContent?: NullableDocumentContentFilterEncoded | null | undefined
@@ -2069,7 +2069,7 @@ export interface CommentCollectionFilterEncoded {
   readonly issue?: NullableIssueFilterEncoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<CommentCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly CommentCollectionFilterEncoded[] | null | undefined
   readonly parent?: NullableCommentFilterEncoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly projectUpdate?: NullableProjectUpdateFilterEncoded | null | undefined
@@ -2096,7 +2096,7 @@ export const NullableDocumentContentFilter: Schema.Codec<NullableDocumentContent
 })
 export interface NullableDocumentContentFilter {
   /** Compound filters, all of which need to be matched by the user. */
-  readonly and?: ReadonlyArray<NullableDocumentContentFilter> | null | undefined
+  readonly and?: readonly NullableDocumentContentFilter[] | null | undefined
   /** Comparator for the document content. */
   readonly content?: NullableStringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -2112,7 +2112,7 @@ export interface NullableDocumentContentFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the user. */
-  readonly or?: ReadonlyArray<NullableDocumentContentFilter> | null | undefined
+  readonly or?: readonly NullableDocumentContentFilter[] | null | undefined
   /** Filters that the document content project must satisfy. */
   readonly project?: ProjectFilter | null | undefined
   /** Filters that the document content project milestone must satisfy. */
@@ -2121,7 +2121,7 @@ export interface NullableDocumentContentFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface NullableDocumentContentFilterEncoded {
-  readonly and?: ReadonlyArray<NullableDocumentContentFilterEncoded> | null | undefined
+  readonly and?: readonly NullableDocumentContentFilterEncoded[] | null | undefined
   readonly content?: typeof NullableStringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly document?: DocumentFilterEncoded | null | undefined
@@ -2129,7 +2129,7 @@ export interface NullableDocumentContentFilterEncoded {
   readonly initiative?: InitiativeFilterEncoded | null | undefined
   readonly issue?: IssueFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableDocumentContentFilterEncoded> | null | undefined
+  readonly or?: readonly NullableDocumentContentFilterEncoded[] | null | undefined
   readonly project?: ProjectFilterEncoded | null | undefined
   readonly projectMilestone?: ProjectMilestoneFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2156,7 +2156,7 @@ export const DocumentFilter: Schema.Codec<DocumentFilter, DocumentFilterEncoded>
 })
 export interface DocumentFilter {
   /** Compound filters, all of which need to be matched by the document. */
-  readonly and?: ReadonlyArray<DocumentFilter> | null | undefined
+  readonly and?: readonly DocumentFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the document's creator must satisfy. */
@@ -2170,7 +2170,7 @@ export interface DocumentFilter {
   /** Filters that the document's issue must satisfy. */
   readonly issue?: IssueFilter | null | undefined
   /** Compound filters, one of which need to be matched by the document. */
-  readonly or?: ReadonlyArray<DocumentFilter> | null | undefined
+  readonly or?: readonly DocumentFilter[] | null | undefined
   /** Filters that the document's owner must satisfy. */
   readonly owner?: NullableUserFilter | null | undefined
   /** Filters that the document's project must satisfy. */
@@ -2189,14 +2189,14 @@ export interface DocumentFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface DocumentFilterEncoded {
-  readonly and?: ReadonlyArray<DocumentFilterEncoded> | null | undefined
+  readonly and?: readonly DocumentFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: UserFilterEncoded | null | undefined
   readonly cycle?: CycleFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly initiative?: InitiativeFilterEncoded | null | undefined
   readonly issue?: IssueFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<DocumentFilterEncoded> | null | undefined
+  readonly or?: readonly DocumentFilterEncoded[] | null | undefined
   readonly owner?: NullableUserFilterEncoded | null | undefined
   readonly project?: ProjectFilterEncoded | null | undefined
   readonly release?: ReleaseFilterEncoded | null | undefined
@@ -2231,7 +2231,7 @@ export const CycleFilter: Schema.Codec<CycleFilter, CycleFilterEncoded> = Schema
 })
 export interface CycleFilter {
   /** Compound filters, all of which need to be matched by the cycle. */
-  readonly and?: ReadonlyArray<CycleFilter> | null | undefined
+  readonly and?: readonly CycleFilter[] | null | undefined
   /** Comparator for the cycle completed at date. */
   readonly completedAt?: DateComparator | null | undefined
   /** Comparator for the created at date. */
@@ -2261,7 +2261,7 @@ export interface CycleFilter {
   /** Comparator for the cycle number. */
   readonly number?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the cycle. */
-  readonly or?: ReadonlyArray<CycleFilter> | null | undefined
+  readonly or?: readonly CycleFilter[] | null | undefined
   /** Comparator for the cycle start date. */
   readonly startsAt?: DateComparator | null | undefined
   /** Filters that the cycles team must satisfy. */
@@ -2270,7 +2270,7 @@ export interface CycleFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface CycleFilterEncoded {
-  readonly and?: ReadonlyArray<CycleFilterEncoded> | null | undefined
+  readonly and?: readonly CycleFilterEncoded[] | null | undefined
   readonly completedAt?: typeof DateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly endsAt?: typeof DateComparator.Encoded | null | undefined
@@ -2285,7 +2285,7 @@ export interface CycleFilterEncoded {
   readonly issues?: IssueCollectionFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly number?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<CycleFilterEncoded> | null | undefined
+  readonly or?: readonly CycleFilterEncoded[] | null | undefined
   readonly startsAt?: typeof DateComparator.Encoded | null | undefined
   readonly team?: TeamFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2317,7 +2317,7 @@ export interface TeamFilter {
   /** Filters that the team's ancestors must satisfy. */
   readonly ancestors?: TeamCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the team. */
-  readonly and?: ReadonlyArray<TeamFilter> | null | undefined
+  readonly and?: readonly TeamFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the team description. */
@@ -2333,7 +2333,7 @@ export interface TeamFilter {
   /** Comparator for the team name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the team. */
-  readonly or?: ReadonlyArray<TeamFilter> | null | undefined
+  readonly or?: readonly TeamFilter[] | null | undefined
   /** Filters that the team's owners must satisfy. */
   readonly owners?: UserCollectionFilter | null | undefined
   /** Filters that the team's parent must satisfy. */
@@ -2355,7 +2355,7 @@ export interface TeamFilter {
 }
 export interface TeamFilterEncoded {
   readonly ancestors?: TeamCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<TeamFilterEncoded> | null | undefined
+  readonly and?: readonly TeamFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof NullableStringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
@@ -2363,7 +2363,7 @@ export interface TeamFilterEncoded {
   readonly key?: typeof StringComparator.Encoded | null | undefined
   readonly members?: UserCollectionFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<TeamFilterEncoded> | null | undefined
+  readonly or?: readonly TeamFilterEncoded[] | null | undefined
   readonly owners?: UserCollectionFilterEncoded | null | undefined
   readonly parent?: NullableTeamFilterEncoded | null | undefined
   readonly private?: typeof BooleanComparator.Encoded | null | undefined
@@ -2392,7 +2392,7 @@ export interface TeamCollectionFilter {
   /** Filters that the team's ancestors must satisfy. */
   readonly ancestors?: TeamCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the team. */
-  readonly and?: ReadonlyArray<TeamCollectionFilter> | null | undefined
+  readonly and?: readonly TeamCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all teams. */
@@ -2402,7 +2402,7 @@ export interface TeamCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the team. */
-  readonly or?: ReadonlyArray<TeamCollectionFilter> | null | undefined
+  readonly or?: readonly TeamCollectionFilter[] | null | undefined
   /** Filters that the teams parent must satisfy. */
   readonly parent?: NullableTeamFilter | null | undefined
   /** Filters that needs to be matched by some teams. */
@@ -2412,12 +2412,12 @@ export interface TeamCollectionFilter {
 }
 export interface TeamCollectionFilterEncoded {
   readonly ancestors?: TeamCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<TeamCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly TeamCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: TeamFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<TeamCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly TeamCollectionFilterEncoded[] | null | undefined
   readonly parent?: NullableTeamFilterEncoded | null | undefined
   readonly some?: TeamFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2450,7 +2450,7 @@ export interface NullableTeamFilter {
   /** Filters that the team's ancestors must satisfy. */
   readonly ancestors?: TeamCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the team. */
-  readonly and?: ReadonlyArray<NullableTeamFilter> | null | undefined
+  readonly and?: readonly NullableTeamFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the team description. */
@@ -2468,7 +2468,7 @@ export interface NullableTeamFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the team. */
-  readonly or?: ReadonlyArray<NullableTeamFilter> | null | undefined
+  readonly or?: readonly NullableTeamFilter[] | null | undefined
   /** Filters that the team's owners must satisfy. */
   readonly owners?: UserCollectionFilter | null | undefined
   /** Filters that the team's parent must satisfy. */
@@ -2490,7 +2490,7 @@ export interface NullableTeamFilter {
 }
 export interface NullableTeamFilterEncoded {
   readonly ancestors?: TeamCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<NullableTeamFilterEncoded> | null | undefined
+  readonly and?: readonly NullableTeamFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof NullableStringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
@@ -2499,7 +2499,7 @@ export interface NullableTeamFilterEncoded {
   readonly members?: UserCollectionFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableTeamFilterEncoded> | null | undefined
+  readonly or?: readonly NullableTeamFilterEncoded[] | null | undefined
   readonly owners?: UserCollectionFilterEncoded | null | undefined
   readonly parent?: NullableTeamFilterEncoded | null | undefined
   readonly private?: typeof BooleanComparator.Encoded | null | undefined
@@ -2539,7 +2539,7 @@ export interface UserCollectionFilter {
   /** Comparator for the user's admin status. */
   readonly admin?: BooleanComparator | null | undefined
   /** Compound filters, all of which need to be matched by the user. */
-  readonly and?: ReadonlyArray<UserCollectionFilter> | null | undefined
+  readonly and?: readonly UserCollectionFilter[] | null | undefined
   /** Comparator for the user's app status. */
   readonly app?: BooleanComparator | null | undefined
   /** Filters that the users assigned issues must satisfy. */
@@ -2565,7 +2565,7 @@ export interface UserCollectionFilter {
   /** Comparator for the user's name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the user. */
-  readonly or?: ReadonlyArray<UserCollectionFilter> | null | undefined
+  readonly or?: readonly UserCollectionFilter[] | null | undefined
   /** Comparator for the user's owner status. */
   readonly owner?: BooleanComparator | null | undefined
   /** Filters that needs to be matched by some users. */
@@ -2576,7 +2576,7 @@ export interface UserCollectionFilter {
 export interface UserCollectionFilterEncoded {
   readonly active?: typeof BooleanComparator.Encoded | null | undefined
   readonly admin?: typeof BooleanComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<UserCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly UserCollectionFilterEncoded[] | null | undefined
   readonly app?: typeof BooleanComparator.Encoded | null | undefined
   readonly assignedIssues?: IssueCollectionFilterEncoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -2589,7 +2589,7 @@ export interface UserCollectionFilterEncoded {
   readonly isMe?: typeof BooleanComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<UserCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly UserCollectionFilterEncoded[] | null | undefined
   readonly owner?: typeof BooleanComparator.Encoded | null | undefined
   readonly some?: UserFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2612,7 +2612,7 @@ export const ReleasePipelineCollectionFilter: Schema.Codec<ReleasePipelineCollec
 })
 export interface ReleasePipelineCollectionFilter {
   /** Compound filters, all of which need to be matched by the release pipeline. */
-  readonly and?: ReadonlyArray<ReleasePipelineCollectionFilter> | null | undefined
+  readonly and?: readonly ReleasePipelineCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all release pipelines. */
@@ -2626,7 +2626,7 @@ export interface ReleasePipelineCollectionFilter {
   /** Comparator for the pipeline name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the release pipeline. */
-  readonly or?: ReadonlyArray<ReleasePipelineCollectionFilter> | null | undefined
+  readonly or?: readonly ReleasePipelineCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some release pipelines. */
   readonly some?: ReleasePipelineFilter | null | undefined
   /** Filters that the release pipeline's teams must satisfy. */
@@ -2637,14 +2637,14 @@ export interface ReleasePipelineCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ReleasePipelineCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ReleasePipelineCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ReleasePipelineCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: ReleasePipelineFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly isProduction?: typeof BooleanComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReleasePipelineCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ReleasePipelineCollectionFilterEncoded[] | null | undefined
   readonly some?: ReleasePipelineFilterEncoded | null | undefined
   readonly teams?: TeamCollectionFilterEncoded | null | undefined
   readonly type?: typeof ReleasePipelineTypeComparator.Encoded | null | undefined
@@ -2665,7 +2665,7 @@ export const ReleasePipelineFilter: Schema.Codec<ReleasePipelineFilter, ReleaseP
 })
 export interface ReleasePipelineFilter {
   /** Compound filters, all of which need to be matched by the pipeline. */
-  readonly and?: ReadonlyArray<ReleasePipelineFilter> | null | undefined
+  readonly and?: readonly ReleasePipelineFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -2675,7 +2675,7 @@ export interface ReleasePipelineFilter {
   /** Comparator for the pipeline name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the pipeline. */
-  readonly or?: ReadonlyArray<ReleasePipelineFilter> | null | undefined
+  readonly or?: readonly ReleasePipelineFilter[] | null | undefined
   /** Filters that the release pipeline's teams must satisfy. */
   readonly teams?: TeamCollectionFilter | null | undefined
   /** Comparator for the pipeline type. */
@@ -2684,12 +2684,12 @@ export interface ReleasePipelineFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ReleasePipelineFilterEncoded {
-  readonly and?: ReadonlyArray<ReleasePipelineFilterEncoded> | null | undefined
+  readonly and?: readonly ReleasePipelineFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly isProduction?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReleasePipelineFilterEncoded> | null | undefined
+  readonly or?: readonly ReleasePipelineFilterEncoded[] | null | undefined
   readonly teams?: TeamCollectionFilterEncoded | null | undefined
   readonly type?: typeof ReleasePipelineTypeComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2729,7 +2729,7 @@ export interface InitiativeFilter {
   /** Filters that the initiative must be an ancestor of. */
   readonly ancestors?: InitiativeCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the initiative. */
-  readonly and?: ReadonlyArray<InitiativeFilter> | null | undefined
+  readonly and?: readonly InitiativeFilter[] | null | undefined
   /** [Internal] Comparator for the initiative canceled at date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the initiative completed at date. */
@@ -2755,7 +2755,7 @@ export interface InitiativeFilter {
   /** Comparator for the initiative name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the initiative. */
-  readonly or?: ReadonlyArray<InitiativeFilter> | null | undefined
+  readonly or?: readonly InitiativeFilter[] | null | undefined
   /** Filters that the initiative owner must satisfy. */
   readonly owner?: NullableUserFilter | null | undefined
   /** Comparator for the initiative priority. */
@@ -2778,7 +2778,7 @@ export interface InitiativeFilter {
 export interface InitiativeFilterEncoded {
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
   readonly ancestors?: InitiativeCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<InitiativeFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -2791,7 +2791,7 @@ export interface InitiativeFilterEncoded {
   readonly labels?: InitiativeLabelCollectionFilterEncoded | null | undefined
   readonly leadTeam?: NullableTeamFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<InitiativeFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeFilterEncoded[] | null | undefined
   readonly owner?: NullableUserFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projects?: ProjectCollectionFilterEncoded | null | undefined
@@ -2840,7 +2840,7 @@ export interface InitiativeCollectionFilter {
   /** Filters that the initiative must be an ancestor of. */
   readonly ancestors?: InitiativeCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the initiative. */
-  readonly and?: ReadonlyArray<InitiativeCollectionFilter> | null | undefined
+  readonly and?: readonly InitiativeCollectionFilter[] | null | undefined
   /** [Internal] Comparator for the initiative canceled at date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the initiative completed at date. */
@@ -2870,7 +2870,7 @@ export interface InitiativeCollectionFilter {
   /** Comparator for the initiative name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the initiative. */
-  readonly or?: ReadonlyArray<InitiativeCollectionFilter> | null | undefined
+  readonly or?: readonly InitiativeCollectionFilter[] | null | undefined
   /** Filters that the initiative owner must satisfy. */
   readonly owner?: NullableUserFilter | null | undefined
   /** Comparator for the initiative priority. */
@@ -2895,7 +2895,7 @@ export interface InitiativeCollectionFilter {
 export interface InitiativeCollectionFilterEncoded {
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
   readonly ancestors?: InitiativeCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<InitiativeCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeCollectionFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -2910,7 +2910,7 @@ export interface InitiativeCollectionFilterEncoded {
   readonly leadTeam?: NullableTeamFilterEncoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<InitiativeCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeCollectionFilterEncoded[] | null | undefined
   readonly owner?: NullableUserFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projects?: ProjectCollectionFilterEncoded | null | undefined
@@ -2941,7 +2941,7 @@ export const InitiativeLabelCollectionFilter: Schema.Codec<InitiativeLabelCollec
 })
 export interface InitiativeLabelCollectionFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<InitiativeLabelCollectionFilter> | null | undefined
+  readonly and?: readonly InitiativeLabelCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the initiative labels creator must satisfy. */
@@ -2959,7 +2959,7 @@ export interface InitiativeLabelCollectionFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<InitiativeLabelCollectionFilter> | null | undefined
+  readonly or?: readonly InitiativeLabelCollectionFilter[] | null | undefined
   /** Filters that the initiative label's parent label must satisfy. */
   readonly parent?: InitiativeLabelFilter | null | undefined
   /** Filters that needs to be matched by some initiative labels. */
@@ -2968,7 +2968,7 @@ export interface InitiativeLabelCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface InitiativeLabelCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<InitiativeLabelCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeLabelCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly every?: InitiativeLabelFilterEncoded | null | undefined
@@ -2977,7 +2977,7 @@ export interface InitiativeLabelCollectionFilterEncoded {
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<InitiativeLabelCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeLabelCollectionFilterEncoded[] | null | undefined
   readonly parent?: InitiativeLabelFilterEncoded | null | undefined
   readonly some?: InitiativeLabelCollectionFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -2997,7 +2997,7 @@ export const InitiativeLabelFilter: Schema.Codec<InitiativeLabelFilter, Initiati
 })
 export interface InitiativeLabelFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<InitiativeLabelFilter> | null | undefined
+  readonly and?: readonly InitiativeLabelFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the initiative labels creator must satisfy. */
@@ -3009,20 +3009,20 @@ export interface InitiativeLabelFilter {
   /** Comparator for the name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<InitiativeLabelFilter> | null | undefined
+  readonly or?: readonly InitiativeLabelFilter[] | null | undefined
   /** Filters that the initiative label's parent label must satisfy. */
   readonly parent?: InitiativeLabelFilter | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface InitiativeLabelFilterEncoded {
-  readonly and?: ReadonlyArray<InitiativeLabelFilterEncoded> | null | undefined
+  readonly and?: readonly InitiativeLabelFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly isGroup?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<InitiativeLabelFilterEncoded> | null | undefined
+  readonly or?: readonly InitiativeLabelFilterEncoded[] | null | undefined
   readonly parent?: InitiativeLabelFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -3082,7 +3082,7 @@ export interface ProjectCollectionFilter {
   /** [ALPHA] Comparator for the project activity type: buzzin, active, some, none */
   readonly activityType?: StringComparator | null | undefined
   /** Compound filters, all of which need to be matched by the project. */
-  readonly and?: ReadonlyArray<ProjectCollectionFilter> | null | undefined
+  readonly and?: readonly ProjectCollectionFilter[] | null | undefined
   /** Comparator for the project cancelation date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the project completion date. */
@@ -3142,7 +3142,7 @@ export interface ProjectCollectionFilter {
   /** Filters that the project's next milestone must satisfy. */
   readonly nextProjectMilestone?: ProjectMilestoneFilter | null | undefined
   /** Compound filters, one of which need to be matched by the project. */
-  readonly or?: ReadonlyArray<ProjectCollectionFilter> | null | undefined
+  readonly or?: readonly ProjectCollectionFilter[] | null | undefined
   /** Comparator for the project priority. */
   readonly priority?: NullableNumberComparator | null | undefined
   /** Filters that the project's milestones must satisfy. */
@@ -3173,7 +3173,7 @@ export interface ProjectCollectionFilter {
 export interface ProjectCollectionFilterEncoded {
   readonly accessibleTeams?: TeamCollectionFilterEncoded | null | undefined
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<ProjectCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectCollectionFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedProjectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
@@ -3203,7 +3203,7 @@ export interface ProjectCollectionFilterEncoded {
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly nextProjectMilestone?: ProjectMilestoneFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectCollectionFilterEncoded[] | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
   readonly projectUpdates?: ProjectUpdatesCollectionFilterEncoded | null | undefined
@@ -3235,7 +3235,7 @@ export const ProjectMilestoneCollectionFilter: Schema.Codec<ProjectMilestoneColl
 })
 export interface ProjectMilestoneCollectionFilter {
   /** Compound filters, all of which need to be matched by the milestone. */
-  readonly and?: ReadonlyArray<ProjectMilestoneCollectionFilter> | null | undefined
+  readonly and?: readonly ProjectMilestoneCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all milestones. */
@@ -3247,7 +3247,7 @@ export interface ProjectMilestoneCollectionFilter {
   /** Comparator for the project milestone name. */
   readonly name?: NullableStringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the milestone. */
-  readonly or?: ReadonlyArray<ProjectMilestoneCollectionFilter> | null | undefined
+  readonly or?: readonly ProjectMilestoneCollectionFilter[] | null | undefined
   /** Filters that the project milestone's project must satisfy. */
   readonly project?: NullableProjectFilter | null | undefined
   /** Filters that needs to be matched by some milestones. */
@@ -3258,13 +3258,13 @@ export interface ProjectMilestoneCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectMilestoneCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectMilestoneCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectMilestoneCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: ProjectMilestoneFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof NullableStringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectMilestoneCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectMilestoneCollectionFilterEncoded[] | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly some?: ProjectMilestoneFilterEncoded | null | undefined
   readonly targetDate?: typeof NullableDateComparator.Encoded | null | undefined
@@ -3284,7 +3284,7 @@ export const ProjectMilestoneFilter: Schema.Codec<ProjectMilestoneFilter, Projec
 })
 export interface ProjectMilestoneFilter {
   /** Compound filters, all of which need to be matched by the project milestone. */
-  readonly and?: ReadonlyArray<ProjectMilestoneFilter> | null | undefined
+  readonly and?: readonly ProjectMilestoneFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -3292,7 +3292,7 @@ export interface ProjectMilestoneFilter {
   /** Comparator for the project milestone name. */
   readonly name?: NullableStringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the project milestone. */
-  readonly or?: ReadonlyArray<ProjectMilestoneFilter> | null | undefined
+  readonly or?: readonly ProjectMilestoneFilter[] | null | undefined
   /** Filters that the project milestone's project must satisfy. */
   readonly project?: NullableProjectFilter | null | undefined
   /** Comparator for the project milestone target date. */
@@ -3301,11 +3301,11 @@ export interface ProjectMilestoneFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectMilestoneFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectMilestoneFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectMilestoneFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof NullableStringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectMilestoneFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectMilestoneFilterEncoded[] | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly targetDate?: typeof NullableDateComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -3364,7 +3364,7 @@ export interface NullableProjectFilter {
   /** [ALPHA] Comparator for the project activity type: buzzin, active, some, none */
   readonly activityType?: StringComparator | null | undefined
   /** Compound filters, all of which need to be matched by the project. */
-  readonly and?: ReadonlyArray<NullableProjectFilter> | null | undefined
+  readonly and?: readonly NullableProjectFilter[] | null | undefined
   /** Comparator for the project cancelation date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the project completion date. */
@@ -3422,7 +3422,7 @@ export interface NullableProjectFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the project. */
-  readonly or?: ReadonlyArray<NullableProjectFilter> | null | undefined
+  readonly or?: readonly NullableProjectFilter[] | null | undefined
   /** Comparator for the project priority. */
   readonly priority?: NullableNumberComparator | null | undefined
   /** Filters that the project's milestones must satisfy. */
@@ -3451,7 +3451,7 @@ export interface NullableProjectFilter {
 export interface NullableProjectFilterEncoded {
   readonly accessibleTeams?: TeamCollectionFilterEncoded | null | undefined
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<NullableProjectFilterEncoded> | null | undefined
+  readonly and?: readonly NullableProjectFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedProjectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
@@ -3480,7 +3480,7 @@ export interface NullableProjectFilterEncoded {
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly nextProjectMilestone?: ProjectMilestoneFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableProjectFilterEncoded> | null | undefined
+  readonly or?: readonly NullableProjectFilterEncoded[] | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
   readonly projectUpdates?: ProjectUpdatesCollectionFilterEncoded | null | undefined
@@ -3514,7 +3514,7 @@ export const ProjectLabelCollectionFilter: Schema.Codec<ProjectLabelCollectionFi
 })
 export interface ProjectLabelCollectionFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<ProjectLabelCollectionFilter> | null | undefined
+  readonly and?: readonly ProjectLabelCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the project labels creator must satisfy. */
@@ -3532,7 +3532,7 @@ export interface ProjectLabelCollectionFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<ProjectLabelCollectionFilter> | null | undefined
+  readonly or?: readonly ProjectLabelCollectionFilter[] | null | undefined
   /** Filters that the project label's parent label must satisfy. */
   readonly parent?: ProjectLabelFilter | null | undefined
   /** Filters that needs to be matched by some project labels. */
@@ -3543,7 +3543,7 @@ export interface ProjectLabelCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectLabelCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectLabelCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectLabelCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly every?: ProjectLabelFilterEncoded | null | undefined
@@ -3552,7 +3552,7 @@ export interface ProjectLabelCollectionFilterEncoded {
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<ProjectLabelCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectLabelCollectionFilterEncoded[] | null | undefined
   readonly parent?: ProjectLabelFilterEncoded | null | undefined
   readonly some?: ProjectLabelCollectionFilterEncoded | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
@@ -3574,7 +3574,7 @@ export const ProjectLabelFilter: Schema.Codec<ProjectLabelFilter, ProjectLabelFi
 })
 export interface ProjectLabelFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<ProjectLabelFilter> | null | undefined
+  readonly and?: readonly ProjectLabelFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the project labels creator must satisfy. */
@@ -3586,7 +3586,7 @@ export interface ProjectLabelFilter {
   /** Comparator for the name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<ProjectLabelFilter> | null | undefined
+  readonly or?: readonly ProjectLabelFilter[] | null | undefined
   /** Filters that the project label's parent label must satisfy. */
   readonly parent?: ProjectLabelFilter | null | undefined
   /** Filters that the project label's team must satisfy. Use `{ null: true }` to filter workspace-level labels. */
@@ -3595,13 +3595,13 @@ export interface ProjectLabelFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectLabelFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectLabelFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectLabelFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly isGroup?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectLabelFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectLabelFilterEncoded[] | null | undefined
   readonly parent?: ProjectLabelFilterEncoded | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -3622,7 +3622,7 @@ export const NullableTemplateFilter: Schema.Codec<NullableTemplateFilter, Nullab
 })
 export interface NullableTemplateFilter {
   /** Compound filters, all of which need to be matched by the template. */
-  readonly and?: ReadonlyArray<NullableTemplateFilter> | null | undefined
+  readonly and?: readonly NullableTemplateFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -3634,7 +3634,7 @@ export interface NullableTemplateFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the template. */
-  readonly or?: ReadonlyArray<NullableTemplateFilter> | null | undefined
+  readonly or?: readonly NullableTemplateFilter[] | null | undefined
   /** Filters that the template's team must satisfy. */
   readonly team?: NullableTeamFilter | null | undefined
   /** Comparator for the template's type. */
@@ -3643,13 +3643,13 @@ export interface NullableTemplateFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface NullableTemplateFilterEncoded {
-  readonly and?: ReadonlyArray<NullableTemplateFilterEncoded> | null | undefined
+  readonly and?: readonly NullableTemplateFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly inheritedFromId?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableTemplateFilterEncoded> | null | undefined
+  readonly or?: readonly NullableTemplateFilterEncoded[] | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
   readonly type?: typeof StringComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -3673,7 +3673,7 @@ export const CustomerNeedCollectionFilter: Schema.Codec<CustomerNeedCollectionFi
 })
 export interface CustomerNeedCollectionFilter {
   /** Compound filters, all of which need to be matched by the customer needs. */
-  readonly and?: ReadonlyArray<CustomerNeedCollectionFilter> | null | undefined
+  readonly and?: readonly CustomerNeedCollectionFilter[] | null | undefined
   /** Filters that the need's comment must satisfy. */
   readonly comment?: NullableCommentFilter | null | undefined
   /** Comparator for the created at date. */
@@ -3689,7 +3689,7 @@ export interface CustomerNeedCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the customer needs. */
-  readonly or?: ReadonlyArray<CustomerNeedCollectionFilter> | null | undefined
+  readonly or?: readonly CustomerNeedCollectionFilter[] | null | undefined
   /** Comparator for the customer need priority. */
   readonly priority?: NumberComparator | null | undefined
   /** Filters that the need's project must satisfy. */
@@ -3700,7 +3700,7 @@ export interface CustomerNeedCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface CustomerNeedCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<CustomerNeedCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly CustomerNeedCollectionFilterEncoded[] | null | undefined
   readonly comment?: NullableCommentFilterEncoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly customer?: NullableCustomerFilterEncoded | null | undefined
@@ -3708,7 +3708,7 @@ export interface CustomerNeedCollectionFilterEncoded {
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly issue?: NullableIssueFilterEncoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<CustomerNeedCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly CustomerNeedCollectionFilterEncoded[] | null | undefined
   readonly priority?: typeof NumberComparator.Encoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly some?: CustomerNeedFilterEncoded | null | undefined
@@ -3737,7 +3737,7 @@ export const NullableCommentFilter: Schema.Codec<NullableCommentFilter, Nullable
 })
 export interface NullableCommentFilter {
   /** Compound filters, all of which need to be matched by the comment. */
-  readonly and?: ReadonlyArray<NullableCommentFilter> | null | undefined
+  readonly and?: readonly NullableCommentFilter[] | null | undefined
   /** Comparator for the comment's body. */
   readonly body?: StringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -3757,7 +3757,7 @@ export interface NullableCommentFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the comment. */
-  readonly or?: ReadonlyArray<NullableCommentFilter> | null | undefined
+  readonly or?: readonly NullableCommentFilter[] | null | undefined
   /** Filters that the comment parent must satisfy. */
   readonly parent?: NullableCommentFilter | null | undefined
   /** [Internal] Filters that the comment's project must satisfy. */
@@ -3772,7 +3772,7 @@ export interface NullableCommentFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface NullableCommentFilterEncoded {
-  readonly and?: ReadonlyArray<NullableCommentFilterEncoded> | null | undefined
+  readonly and?: readonly NullableCommentFilterEncoded[] | null | undefined
   readonly body?: typeof StringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly documentContent?: NullableDocumentContentFilterEncoded | null | undefined
@@ -3782,7 +3782,7 @@ export interface NullableCommentFilterEncoded {
   readonly issue?: NullableIssueFilterEncoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableCommentFilterEncoded> | null | undefined
+  readonly or?: readonly NullableCommentFilterEncoded[] | null | undefined
   readonly parent?: NullableCommentFilterEncoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly projectUpdate?: NullableProjectUpdateFilterEncoded | null | undefined
@@ -3826,7 +3826,7 @@ export interface NullableInitiativeFilter {
   /** Filters that the initiative must be an ancestor of. */
   readonly ancestors?: InitiativeCollectionFilter | null | undefined
   /** Compound filters, all of which need to be matched by the initiative. */
-  readonly and?: ReadonlyArray<NullableInitiativeFilter> | null | undefined
+  readonly and?: readonly NullableInitiativeFilter[] | null | undefined
   /** [Internal] Comparator for the initiative canceled at date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the initiative completed at date. */
@@ -3854,7 +3854,7 @@ export interface NullableInitiativeFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the initiative. */
-  readonly or?: ReadonlyArray<NullableInitiativeFilter> | null | undefined
+  readonly or?: readonly NullableInitiativeFilter[] | null | undefined
   /** Filters that the initiative owner must satisfy. */
   readonly owner?: NullableUserFilter | null | undefined
   /** Comparator for the initiative priority. */
@@ -3877,7 +3877,7 @@ export interface NullableInitiativeFilter {
 export interface NullableInitiativeFilterEncoded {
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
   readonly ancestors?: InitiativeCollectionFilterEncoded | null | undefined
-  readonly and?: ReadonlyArray<NullableInitiativeFilterEncoded> | null | undefined
+  readonly and?: readonly NullableInitiativeFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
@@ -3891,7 +3891,7 @@ export interface NullableInitiativeFilterEncoded {
   readonly leadTeam?: NullableTeamFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableInitiativeFilterEncoded> | null | undefined
+  readonly or?: readonly NullableInitiativeFilterEncoded[] | null | undefined
   readonly owner?: NullableUserFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projects?: ProjectCollectionFilterEncoded | null | undefined
@@ -3917,7 +3917,7 @@ export const NullableInitiativeUpdateFilter: Schema.Codec<NullableInitiativeUpda
 })
 export interface NullableInitiativeUpdateFilter {
   /** Compound filters, all of which need to be matched by the initiative update. */
-  readonly and?: ReadonlyArray<NullableInitiativeUpdateFilter> | null | undefined
+  readonly and?: readonly NullableInitiativeUpdateFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -3927,7 +3927,7 @@ export interface NullableInitiativeUpdateFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the initiative update. */
-  readonly or?: ReadonlyArray<NullableInitiativeUpdateFilter> | null | undefined
+  readonly or?: readonly NullableInitiativeUpdateFilter[] | null | undefined
   /** Filters that the initiative updates reactions must satisfy. */
   readonly reactions?: ReactionCollectionFilter | null | undefined
   /** Comparator for the updated at date. */
@@ -3936,12 +3936,12 @@ export interface NullableInitiativeUpdateFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface NullableInitiativeUpdateFilterEncoded {
-  readonly and?: ReadonlyArray<NullableInitiativeUpdateFilterEncoded> | null | undefined
+  readonly and?: readonly NullableInitiativeUpdateFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly initiative?: InitiativeFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableInitiativeUpdateFilterEncoded> | null | undefined
+  readonly or?: readonly NullableInitiativeUpdateFilterEncoded[] | null | undefined
   readonly reactions?: ReactionCollectionFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
   readonly user?: UserFilterEncoded | null | undefined
@@ -4033,7 +4033,7 @@ export interface NullableIssueFilter {
   /** [Internal] Age (created -> now) comparator, defined if the issue is still open. */
   readonly ageTime?: NullableDurationComparator | null | undefined
   /** Compound filters, all of which need to be matched by the issue. */
-  readonly and?: ReadonlyArray<NullableIssueFilter> | null | undefined
+  readonly and?: readonly NullableIssueFilter[] | null | undefined
   /** Comparator for the issues archived at date. */
   readonly archivedAt?: NullableDateComparator | null | undefined
   /** Filters that the issues assignee must satisfy. */
@@ -4117,7 +4117,7 @@ export interface NullableIssueFilter {
   /** Comparator for the issues number. */
   readonly number?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the issue. */
-  readonly or?: ReadonlyArray<NullableIssueFilter> | null | undefined
+  readonly or?: readonly NullableIssueFilter[] | null | undefined
   /** Filters that the issue parent must satisfy. */
   readonly parent?: NullableIssueFilter | null | undefined
   /** Comparator for the issues priority. 0 = No priority, 1 = Urgent, 2 = High, 3 = Medium, 4 = Low. */
@@ -4171,7 +4171,7 @@ export interface NullableIssueFilterEncoded {
   readonly addedToCycleAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly addedToCyclePeriod?: typeof CyclePeriodComparator.Encoded | null | undefined
   readonly ageTime?: typeof NullableDurationComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<NullableIssueFilterEncoded> | null | undefined
+  readonly and?: readonly NullableIssueFilterEncoded[] | null | undefined
   readonly archivedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly assignee?: NullableUserFilterEncoded | null | undefined
   readonly attachments?: AttachmentCollectionFilterEncoded | null | undefined
@@ -4213,7 +4213,7 @@ export interface NullableIssueFilterEncoded {
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
   readonly number?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<NullableIssueFilterEncoded> | null | undefined
+  readonly or?: readonly NullableIssueFilterEncoded[] | null | undefined
   readonly parent?: NullableIssueFilterEncoded | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
@@ -4264,7 +4264,7 @@ export const NullableCycleFilter: Schema.Codec<NullableCycleFilter, NullableCycl
 })
 export interface NullableCycleFilter {
   /** Compound filters, all of which need to be matched by the cycle. */
-  readonly and?: ReadonlyArray<NullableCycleFilter> | null | undefined
+  readonly and?: readonly NullableCycleFilter[] | null | undefined
   /** Comparator for the cycle completed at date. */
   readonly completedAt?: DateComparator | null | undefined
   /** Comparator for the created at date. */
@@ -4296,7 +4296,7 @@ export interface NullableCycleFilter {
   /** Comparator for the cycle number. */
   readonly number?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the cycle. */
-  readonly or?: ReadonlyArray<NullableCycleFilter> | null | undefined
+  readonly or?: readonly NullableCycleFilter[] | null | undefined
   /** Comparator for the cycle start date. */
   readonly startsAt?: DateComparator | null | undefined
   /** Filters that the cycles team must satisfy. */
@@ -4305,7 +4305,7 @@ export interface NullableCycleFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface NullableCycleFilterEncoded {
-  readonly and?: ReadonlyArray<NullableCycleFilterEncoded> | null | undefined
+  readonly and?: readonly NullableCycleFilterEncoded[] | null | undefined
   readonly completedAt?: typeof DateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly endsAt?: typeof DateComparator.Encoded | null | undefined
@@ -4321,7 +4321,7 @@ export interface NullableCycleFilterEncoded {
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
   readonly number?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<NullableCycleFilterEncoded> | null | undefined
+  readonly or?: readonly NullableCycleFilterEncoded[] | null | undefined
   readonly startsAt?: typeof DateComparator.Encoded | null | undefined
   readonly team?: TeamFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -4346,7 +4346,7 @@ export const IssueLabelCollectionFilter: Schema.Codec<IssueLabelCollectionFilter
 })
 export interface IssueLabelCollectionFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<IssueLabelCollectionFilter> | null | undefined
+  readonly and?: readonly IssueLabelCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the issue labels creator must satisfy. */
@@ -4364,7 +4364,7 @@ export interface IssueLabelCollectionFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<IssueLabelCollectionFilter> | null | undefined
+  readonly or?: readonly IssueLabelCollectionFilter[] | null | undefined
   /** Filters that the issue label's parent label must satisfy. */
   readonly parent?: IssueLabelFilter | null | undefined
   /** Filters that needs to be matched by some issue labels. */
@@ -4375,7 +4375,7 @@ export interface IssueLabelCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface IssueLabelCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<IssueLabelCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly IssueLabelCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly every?: IssueLabelFilterEncoded | null | undefined
@@ -4384,7 +4384,7 @@ export interface IssueLabelCollectionFilterEncoded {
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<IssueLabelCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly IssueLabelCollectionFilterEncoded[] | null | undefined
   readonly parent?: IssueLabelFilterEncoded | null | undefined
   readonly some?: IssueLabelFilterEncoded | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
@@ -4406,7 +4406,7 @@ export const IssueLabelFilter: Schema.Codec<IssueLabelFilter, IssueLabelFilterEn
 })
 export interface IssueLabelFilter {
   /** Compound filters, all of which need to be matched by the label. */
-  readonly and?: ReadonlyArray<IssueLabelFilter> | null | undefined
+  readonly and?: readonly IssueLabelFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the issue labels creator must satisfy. */
@@ -4418,7 +4418,7 @@ export interface IssueLabelFilter {
   /** Comparator for the name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the label. */
-  readonly or?: ReadonlyArray<IssueLabelFilter> | null | undefined
+  readonly or?: readonly IssueLabelFilter[] | null | undefined
   /** Filters that the issue label's parent label must satisfy. */
   readonly parent?: IssueLabelFilter | null | undefined
   /** Filters that the issue labels team must satisfy. */
@@ -4427,13 +4427,13 @@ export interface IssueLabelFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface IssueLabelFilterEncoded {
-  readonly and?: ReadonlyArray<IssueLabelFilterEncoded> | null | undefined
+  readonly and?: readonly IssueLabelFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: NullableUserFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly isGroup?: typeof BooleanComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<IssueLabelFilterEncoded> | null | undefined
+  readonly or?: readonly IssueLabelFilterEncoded[] | null | undefined
   readonly parent?: IssueLabelFilterEncoded | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -4453,7 +4453,7 @@ export const NullableProjectMilestoneFilter: Schema.Codec<NullableProjectMilesto
 })
 export interface NullableProjectMilestoneFilter {
   /** Compound filters, all of which need to be matched by the project milestone. */
-  readonly and?: ReadonlyArray<NullableProjectMilestoneFilter> | null | undefined
+  readonly and?: readonly NullableProjectMilestoneFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -4463,7 +4463,7 @@ export interface NullableProjectMilestoneFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the project milestone. */
-  readonly or?: ReadonlyArray<NullableProjectMilestoneFilter> | null | undefined
+  readonly or?: readonly NullableProjectMilestoneFilter[] | null | undefined
   /** Filters that the project milestone's project must satisfy. */
   readonly project?: NullableProjectFilter | null | undefined
   /** Comparator for the project milestone target date. */
@@ -4472,12 +4472,12 @@ export interface NullableProjectMilestoneFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface NullableProjectMilestoneFilterEncoded {
-  readonly and?: ReadonlyArray<NullableProjectMilestoneFilterEncoded> | null | undefined
+  readonly and?: readonly NullableProjectMilestoneFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof NullableStringComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableProjectMilestoneFilterEncoded> | null | undefined
+  readonly or?: readonly NullableProjectMilestoneFilterEncoded[] | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly targetDate?: typeof NullableDateComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -4502,7 +4502,7 @@ export const ReleaseCollectionFilter: Schema.Codec<ReleaseCollectionFilter, Rele
 })
 export interface ReleaseCollectionFilter {
   /** Compound filters, all of which need to be matched by the release. */
-  readonly and?: ReadonlyArray<ReleaseCollectionFilter> | null | undefined
+  readonly and?: readonly ReleaseCollectionFilter[] | null | undefined
   /** Comparator for the release completion date. */
   readonly completedAt?: NullableDateComparator | null | undefined
   /** Comparator for the created at date. */
@@ -4518,7 +4518,7 @@ export interface ReleaseCollectionFilter {
   /** Comparator for the release name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the release. */
-  readonly or?: ReadonlyArray<ReleaseCollectionFilter> | null | undefined
+  readonly or?: readonly ReleaseCollectionFilter[] | null | undefined
   /** Filters that the release's pipeline must satisfy. */
   readonly pipeline?: ReleasePipelineFilter | null | undefined
   /** Filters that needs to be matched by some releases. */
@@ -4531,7 +4531,7 @@ export interface ReleaseCollectionFilter {
   readonly version?: StringComparator | null | undefined
 }
 export interface ReleaseCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<ReleaseCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly ReleaseCollectionFilterEncoded[] | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: ReleaseFilterEncoded | null | undefined
@@ -4539,7 +4539,7 @@ export interface ReleaseCollectionFilterEncoded {
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReleaseCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly ReleaseCollectionFilterEncoded[] | null | undefined
   readonly pipeline?: ReleasePipelineFilterEncoded | null | undefined
   readonly some?: ReleaseFilterEncoded | null | undefined
   readonly stage?: ReleaseStageFilterEncoded | null | undefined
@@ -4563,7 +4563,7 @@ export const ReleaseFilter: Schema.Codec<ReleaseFilter, ReleaseFilterEncoded> = 
 })
 export interface ReleaseFilter {
   /** Compound filters, all of which need to be matched by the release. */
-  readonly and?: ReadonlyArray<ReleaseFilter> | null | undefined
+  readonly and?: readonly ReleaseFilter[] | null | undefined
   /** Comparator for the release completion date. */
   readonly completedAt?: NullableDateComparator | null | undefined
   /** Comparator for the created at date. */
@@ -4575,7 +4575,7 @@ export interface ReleaseFilter {
   /** Comparator for the release name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the release. */
-  readonly or?: ReadonlyArray<ReleaseFilter> | null | undefined
+  readonly or?: readonly ReleaseFilter[] | null | undefined
   /** Filters that the release's pipeline must satisfy. */
   readonly pipeline?: ReleasePipelineFilter | null | undefined
   /** Filters that the release's stage must satisfy. */
@@ -4586,13 +4586,13 @@ export interface ReleaseFilter {
   readonly version?: StringComparator | null | undefined
 }
 export interface ReleaseFilterEncoded {
-  readonly and?: ReadonlyArray<ReleaseFilterEncoded> | null | undefined
+  readonly and?: readonly ReleaseFilterEncoded[] | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly hasReleaseNotes?: typeof BooleanComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ReleaseFilterEncoded> | null | undefined
+  readonly or?: readonly ReleaseFilterEncoded[] | null | undefined
   readonly pipeline?: ReleasePipelineFilterEncoded | null | undefined
   readonly stage?: ReleaseStageFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -4615,7 +4615,7 @@ export const WorkflowStateFilter: Schema.Codec<WorkflowStateFilter, WorkflowStat
 })
 export interface WorkflowStateFilter {
   /** Compound filters, all of which need to be matched by the workflow state. */
-  readonly and?: ReadonlyArray<WorkflowStateFilter> | null | undefined
+  readonly and?: readonly WorkflowStateFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the workflow state description. */
@@ -4627,7 +4627,7 @@ export interface WorkflowStateFilter {
   /** Comparator for the workflow state name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the workflow state. */
-  readonly or?: ReadonlyArray<WorkflowStateFilter> | null | undefined
+  readonly or?: readonly WorkflowStateFilter[] | null | undefined
   /** Comparator for the workflow state position. */
   readonly position?: NumberComparator | null | undefined
   /** Filters that the workflow states team must satisfy. */
@@ -4638,13 +4638,13 @@ export interface WorkflowStateFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface WorkflowStateFilterEncoded {
-  readonly and?: ReadonlyArray<WorkflowStateFilterEncoded> | null | undefined
+  readonly and?: readonly WorkflowStateFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly issues?: IssueCollectionFilterEncoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<WorkflowStateFilterEncoded> | null | undefined
+  readonly or?: readonly WorkflowStateFilterEncoded[] | null | undefined
   readonly position?: typeof NumberComparator.Encoded | null | undefined
   readonly team?: TeamFilterEncoded | null | undefined
   readonly type?: typeof StringComparator.Encoded | null | undefined
@@ -4670,7 +4670,7 @@ export const IssueSuggestionCollectionFilter: Schema.Codec<IssueSuggestionCollec
 })
 export interface IssueSuggestionCollectionFilter {
   /** Compound filters, all of which need to be matched by the suggestion. */
-  readonly and?: ReadonlyArray<IssueSuggestionCollectionFilter> | null | undefined
+  readonly and?: readonly IssueSuggestionCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that needs to be matched by all suggestions. */
@@ -4680,7 +4680,7 @@ export interface IssueSuggestionCollectionFilter {
   /** Comparator for the collection length. */
   readonly length?: NumberComparator | null | undefined
   /** Compound filters, one of which need to be matched by the suggestion. */
-  readonly or?: ReadonlyArray<IssueSuggestionCollectionFilter> | null | undefined
+  readonly or?: readonly IssueSuggestionCollectionFilter[] | null | undefined
   /** Filters that needs to be matched by some suggestions. */
   readonly some?: IssueSuggestionFilter | null | undefined
   /** Comparator for the suggestion state. */
@@ -4699,12 +4699,12 @@ export interface IssueSuggestionCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface IssueSuggestionCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<IssueSuggestionCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly IssueSuggestionCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly every?: IssueSuggestionFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<IssueSuggestionCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly IssueSuggestionCollectionFilterEncoded[] | null | undefined
   readonly some?: IssueSuggestionFilterEncoded | null | undefined
   readonly state?: typeof StringComparator.Encoded | null | undefined
   readonly suggestedLabel?: IssueLabelFilterEncoded | null | undefined
@@ -4731,13 +4731,13 @@ export const IssueSuggestionFilter: Schema.Codec<IssueSuggestionFilter, IssueSug
 })
 export interface IssueSuggestionFilter {
   /** Compound filters, all of which need to be matched by the suggestion. */
-  readonly and?: ReadonlyArray<IssueSuggestionFilter> | null | undefined
+  readonly and?: readonly IssueSuggestionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
   readonly id?: IDComparator | null | undefined
   /** Compound filters, one of which need to be matched by the suggestion. */
-  readonly or?: ReadonlyArray<IssueSuggestionFilter> | null | undefined
+  readonly or?: readonly IssueSuggestionFilter[] | null | undefined
   /** Comparator for the suggestion state. */
   readonly state?: StringComparator | null | undefined
   /** Filters that the suggested label must satisfy. */
@@ -4754,10 +4754,10 @@ export interface IssueSuggestionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface IssueSuggestionFilterEncoded {
-  readonly and?: ReadonlyArray<IssueSuggestionFilterEncoded> | null | undefined
+  readonly and?: readonly IssueSuggestionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<IssueSuggestionFilterEncoded> | null | undefined
+  readonly or?: readonly IssueSuggestionFilterEncoded[] | null | undefined
   readonly state?: typeof StringComparator.Encoded | null | undefined
   readonly suggestedLabel?: IssueLabelFilterEncoded | null | undefined
   readonly suggestedProject?: NullableProjectFilterEncoded | null | undefined
@@ -4781,7 +4781,7 @@ export const NullableProjectUpdateFilter: Schema.Codec<NullableProjectUpdateFilt
 })
 export interface NullableProjectUpdateFilter {
   /** Compound filters, all of which need to be matched by the project update. */
-  readonly and?: ReadonlyArray<NullableProjectUpdateFilter> | null | undefined
+  readonly and?: readonly NullableProjectUpdateFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the identifier. */
@@ -4789,7 +4789,7 @@ export interface NullableProjectUpdateFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the project update. */
-  readonly or?: ReadonlyArray<NullableProjectUpdateFilter> | null | undefined
+  readonly or?: readonly NullableProjectUpdateFilter[] | null | undefined
   /** Filters that the project update project must satisfy. */
   readonly project?: ProjectFilter | null | undefined
   /** Filters that the project updates reactions must satisfy. */
@@ -4800,11 +4800,11 @@ export interface NullableProjectUpdateFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface NullableProjectUpdateFilterEncoded {
-  readonly and?: ReadonlyArray<NullableProjectUpdateFilterEncoded> | null | undefined
+  readonly and?: readonly NullableProjectUpdateFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableProjectUpdateFilterEncoded> | null | undefined
+  readonly or?: readonly NullableProjectUpdateFilterEncoded[] | null | undefined
   readonly project?: ProjectFilterEncoded | null | undefined
   readonly reactions?: ReactionCollectionFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -4863,7 +4863,7 @@ export interface ProjectFilter {
   /** [ALPHA] Comparator for the project activity type: buzzin, active, some, none */
   readonly activityType?: StringComparator | null | undefined
   /** Compound filters, all of which need to be matched by the project. */
-  readonly and?: ReadonlyArray<ProjectFilter> | null | undefined
+  readonly and?: readonly ProjectFilter[] | null | undefined
   /** Comparator for the project cancelation date. */
   readonly canceledAt?: NullableDateComparator | null | undefined
   /** Comparator for the project completion date. */
@@ -4919,7 +4919,7 @@ export interface ProjectFilter {
   /** Filters that the project's next milestone must satisfy. */
   readonly nextProjectMilestone?: ProjectMilestoneFilter | null | undefined
   /** Compound filters, one of which need to be matched by the project. */
-  readonly or?: ReadonlyArray<ProjectFilter> | null | undefined
+  readonly or?: readonly ProjectFilter[] | null | undefined
   /** Comparator for the project priority. */
   readonly priority?: NullableNumberComparator | null | undefined
   /** Filters that the project's milestones must satisfy. */
@@ -4948,7 +4948,7 @@ export interface ProjectFilter {
 export interface ProjectFilterEncoded {
   readonly accessibleTeams?: TeamCollectionFilterEncoded | null | undefined
   readonly activityType?: typeof StringComparator.Encoded | null | undefined
-  readonly and?: ReadonlyArray<ProjectFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectFilterEncoded[] | null | undefined
   readonly canceledAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedAt?: typeof NullableDateComparator.Encoded | null | undefined
   readonly completedProjectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
@@ -4976,7 +4976,7 @@ export interface ProjectFilterEncoded {
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly nextProjectMilestone?: ProjectMilestoneFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectFilterEncoded[] | null | undefined
   readonly priority?: typeof NullableNumberComparator.Encoded | null | undefined
   readonly projectMilestones?: ProjectMilestoneCollectionFilterEncoded | null | undefined
   readonly projectUpdates?: ProjectUpdatesCollectionFilterEncoded | null | undefined
@@ -5007,7 +5007,7 @@ export const RoadmapCollectionFilter: Schema.Codec<RoadmapCollectionFilter, Road
 })
 export interface RoadmapCollectionFilter {
   /** Compound filters, all of which need to be matched by the roadmap. */
-  readonly and?: ReadonlyArray<RoadmapCollectionFilter> | null | undefined
+  readonly and?: readonly RoadmapCollectionFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the roadmap creator must satisfy. */
@@ -5021,7 +5021,7 @@ export interface RoadmapCollectionFilter {
   /** Comparator for the roadmap name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the roadmap. */
-  readonly or?: ReadonlyArray<RoadmapCollectionFilter> | null | undefined
+  readonly or?: readonly RoadmapCollectionFilter[] | null | undefined
   /** Comparator for the roadmap slug ID. */
   readonly slugId?: StringComparator | null | undefined
   /** Filters that needs to be matched by some roadmaps. */
@@ -5030,14 +5030,14 @@ export interface RoadmapCollectionFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface RoadmapCollectionFilterEncoded {
-  readonly and?: ReadonlyArray<RoadmapCollectionFilterEncoded> | null | undefined
+  readonly and?: readonly RoadmapCollectionFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: UserFilterEncoded | null | undefined
   readonly every?: RoadmapFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly length?: typeof NumberComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<RoadmapCollectionFilterEncoded> | null | undefined
+  readonly or?: readonly RoadmapCollectionFilterEncoded[] | null | undefined
   readonly slugId?: typeof StringComparator.Encoded | null | undefined
   readonly some?: RoadmapFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -5056,7 +5056,7 @@ export const RoadmapFilter: Schema.Codec<RoadmapFilter, RoadmapFilterEncoded> = 
 })
 export interface RoadmapFilter {
   /** Compound filters, all of which need to be matched by the roadmap. */
-  readonly and?: ReadonlyArray<RoadmapFilter> | null | undefined
+  readonly and?: readonly RoadmapFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Filters that the roadmap creator must satisfy. */
@@ -5066,19 +5066,19 @@ export interface RoadmapFilter {
   /** Comparator for the roadmap name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which need to be matched by the roadmap. */
-  readonly or?: ReadonlyArray<RoadmapFilter> | null | undefined
+  readonly or?: readonly RoadmapFilter[] | null | undefined
   /** Comparator for the roadmap slug ID. */
   readonly slugId?: StringComparator | null | undefined
   /** Comparator for the updated at date. */
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface RoadmapFilterEncoded {
-  readonly and?: ReadonlyArray<RoadmapFilterEncoded> | null | undefined
+  readonly and?: readonly RoadmapFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly creator?: UserFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<RoadmapFilterEncoded> | null | undefined
+  readonly or?: readonly RoadmapFilterEncoded[] | null | undefined
   readonly slugId?: typeof StringComparator.Encoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
 }
@@ -5099,7 +5099,7 @@ export const ProjectStatusFilter: Schema.Codec<ProjectStatusFilter, ProjectStatu
 })
 export interface ProjectStatusFilter {
   /** Compound filters, all of which need to be matched by the project status. */
-  readonly and?: ReadonlyArray<ProjectStatusFilter> | null | undefined
+  readonly and?: readonly ProjectStatusFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the project status description. */
@@ -5109,7 +5109,7 @@ export interface ProjectStatusFilter {
   /** Comparator for the project status name. */
   readonly name?: StringComparator | null | undefined
   /** Compound filters, one of which needs to be matched by the project status. */
-  readonly or?: ReadonlyArray<ProjectStatusFilter> | null | undefined
+  readonly or?: readonly ProjectStatusFilter[] | null | undefined
   /** Comparator for the project status position. */
   readonly position?: NumberComparator | null | undefined
   /** Filters that the project status projects must satisfy. */
@@ -5122,12 +5122,12 @@ export interface ProjectStatusFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface ProjectStatusFilterEncoded {
-  readonly and?: ReadonlyArray<ProjectStatusFilterEncoded> | null | undefined
+  readonly and?: readonly ProjectStatusFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly description?: typeof StringComparator.Encoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly name?: typeof StringComparator.Encoded | null | undefined
-  readonly or?: ReadonlyArray<ProjectStatusFilterEncoded> | null | undefined
+  readonly or?: readonly ProjectStatusFilterEncoded[] | null | undefined
   readonly position?: typeof NumberComparator.Encoded | null | undefined
   readonly projects?: ProjectCollectionFilterEncoded | null | undefined
   readonly team?: NullableTeamFilterEncoded | null | undefined
@@ -5156,7 +5156,7 @@ export const NullableCustomerFilter: Schema.Codec<NullableCustomerFilter, Nullab
 })
 export interface NullableCustomerFilter {
   /** Compound filters, all of which need to be matched by the customer. */
-  readonly and?: ReadonlyArray<NullableCustomerFilter> | null | undefined
+  readonly and?: readonly NullableCustomerFilter[] | null | undefined
   /** Comparator for the created at date. */
   readonly createdAt?: DateComparator | null | undefined
   /** Comparator for the customer's domains. */
@@ -5172,7 +5172,7 @@ export interface NullableCustomerFilter {
   /** Filter based on the existence of the relation. */
   readonly null?: boolean | null | undefined
   /** Compound filters, one of which need to be matched by the customer. */
-  readonly or?: ReadonlyArray<NullableCustomerFilter> | null | undefined
+  readonly or?: readonly NullableCustomerFilter[] | null | undefined
   /** Filters that the customer owner must satisfy. */
   readonly owner?: NullableUserFilter | null | undefined
   /** Comparator for the customer generated revenue. */
@@ -5189,7 +5189,7 @@ export interface NullableCustomerFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface NullableCustomerFilterEncoded {
-  readonly and?: ReadonlyArray<NullableCustomerFilterEncoded> | null | undefined
+  readonly and?: readonly NullableCustomerFilterEncoded[] | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly domains?: typeof StringArrayComparator.Encoded | null | undefined
   readonly externalIds?: typeof StringArrayComparator.Encoded | null | undefined
@@ -5197,7 +5197,7 @@ export interface NullableCustomerFilterEncoded {
   readonly name?: typeof StringComparator.Encoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
   readonly null?: boolean | null | undefined
-  readonly or?: ReadonlyArray<NullableCustomerFilterEncoded> | null | undefined
+  readonly or?: readonly NullableCustomerFilterEncoded[] | null | undefined
   readonly owner?: NullableUserFilterEncoded | null | undefined
   readonly revenue?: typeof NumberComparator.Encoded | null | undefined
   readonly size?: typeof NumberComparator.Encoded | null | undefined
@@ -5222,7 +5222,7 @@ export const CustomerNeedFilter: Schema.Codec<CustomerNeedFilter, CustomerNeedFi
 })
 export interface CustomerNeedFilter {
   /** Compound filters, all of which need to be matched by the customer need. */
-  readonly and?: ReadonlyArray<CustomerNeedFilter> | null | undefined
+  readonly and?: readonly CustomerNeedFilter[] | null | undefined
   /** Filters that the need's comment must satisfy. */
   readonly comment?: NullableCommentFilter | null | undefined
   /** Comparator for the created at date. */
@@ -5234,7 +5234,7 @@ export interface CustomerNeedFilter {
   /** Filters that the need's issue must satisfy. */
   readonly issue?: NullableIssueFilter | null | undefined
   /** Compound filters, one of which need to be matched by the customer need. */
-  readonly or?: ReadonlyArray<CustomerNeedFilter> | null | undefined
+  readonly or?: readonly CustomerNeedFilter[] | null | undefined
   /** Comparator for the customer need priority. */
   readonly priority?: NumberComparator | null | undefined
   /** Filters that the need's project must satisfy. */
@@ -5243,13 +5243,13 @@ export interface CustomerNeedFilter {
   readonly updatedAt?: DateComparator | null | undefined
 }
 export interface CustomerNeedFilterEncoded {
-  readonly and?: ReadonlyArray<CustomerNeedFilterEncoded> | null | undefined
+  readonly and?: readonly CustomerNeedFilterEncoded[] | null | undefined
   readonly comment?: NullableCommentFilterEncoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly customer?: NullableCustomerFilterEncoded | null | undefined
   readonly id?: typeof IDComparator.Encoded | null | undefined
   readonly issue?: NullableIssueFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<CustomerNeedFilterEncoded> | null | undefined
+  readonly or?: readonly CustomerNeedFilterEncoded[] | null | undefined
   readonly priority?: typeof NumberComparator.Encoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly updatedAt?: typeof DateComparator.Encoded | null | undefined
@@ -5276,7 +5276,7 @@ export const CommentFilter: Schema.Codec<CommentFilter, CommentFilterEncoded> = 
 })
 export interface CommentFilter {
   /** Compound filters, all of which need to be matched by the comment. */
-  readonly and?: ReadonlyArray<CommentFilter> | null | undefined
+  readonly and?: readonly CommentFilter[] | null | undefined
   /** Comparator for the comment's body. */
   readonly body?: StringComparator | null | undefined
   /** Comparator for the created at date. */
@@ -5294,7 +5294,7 @@ export interface CommentFilter {
   /** Filters that the comment's customer needs must satisfy. */
   readonly needs?: CustomerNeedCollectionFilter | null | undefined
   /** Compound filters, one of which need to be matched by the comment. */
-  readonly or?: ReadonlyArray<CommentFilter> | null | undefined
+  readonly or?: readonly CommentFilter[] | null | undefined
   /** Filters that the comment parent must satisfy. */
   readonly parent?: NullableCommentFilter | null | undefined
   /** [Internal] Filters that the comment's project must satisfy. */
@@ -5309,7 +5309,7 @@ export interface CommentFilter {
   readonly user?: UserFilter | null | undefined
 }
 export interface CommentFilterEncoded {
-  readonly and?: ReadonlyArray<CommentFilterEncoded> | null | undefined
+  readonly and?: readonly CommentFilterEncoded[] | null | undefined
   readonly body?: typeof StringComparator.Encoded | null | undefined
   readonly createdAt?: typeof DateComparator.Encoded | null | undefined
   readonly documentContent?: NullableDocumentContentFilterEncoded | null | undefined
@@ -5318,7 +5318,7 @@ export interface CommentFilterEncoded {
   readonly initiativeUpdate?: NullableInitiativeUpdateFilterEncoded | null | undefined
   readonly issue?: NullableIssueFilterEncoded | null | undefined
   readonly needs?: CustomerNeedCollectionFilterEncoded | null | undefined
-  readonly or?: ReadonlyArray<CommentFilterEncoded> | null | undefined
+  readonly or?: readonly CommentFilterEncoded[] | null | undefined
   readonly parent?: NullableCommentFilterEncoded | null | undefined
   readonly project?: NullableProjectFilterEncoded | null | undefined
   readonly projectUpdate?: NullableProjectUpdateFilterEncoded | null | undefined

@@ -66,7 +66,7 @@ import {
   pullRequestReactionEmoji,
   pullRequestReactionName,
   pullRequestReactionTooltip,
-} from "../pullRequest/pullRequestReactions.logic";
+} from "@t3tools/client-runtime/pull-request-reactions";
 import { PullRequestsUnavailableState } from "../pullRequest/PullRequestsUnavailableState";
 import {
   issueCloseReasonLabel,
@@ -850,6 +850,7 @@ export function IssueDetailPanel({
                 cwd={cwd}
                 environmentId={environmentId}
                 threadRef={threadRef}
+                completionScope={null}
                 label="Description"
                 saving={saving}
                 allowEmpty

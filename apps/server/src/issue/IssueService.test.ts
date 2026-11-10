@@ -5,6 +5,7 @@ import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import * as GitHubAppSignIn from "@t3tools/source-control-github/server/GitHubAppSignIn";
 import * as GitHubCredentials from "@t3tools/source-control-github/server/GitHubCredentials";
 import * as GitHubQuota from "@t3tools/source-control-github/server/GitHubQuota";
 import * as GitHubRest from "@t3tools/source-control-github/server/GitHubRest";
@@ -77,7 +78,7 @@ function project(input: {
               remoteName: "origin",
               remoteUrl: `https://${host}/${input.repository}.git`,
             },
-            provider: input.provider ?? "github",
+            provider: SourceControlProviderKind.make(input.provider ?? "github"),
             displayName: input.repository,
           },
         }
@@ -284,7 +285,13 @@ describe("IssueService", () => {
             Layer.mergeAll(
               SourceControlRateLimit.layer,
               GitHubQuota.layer,
+              Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
+                enabled: false,
+                token: () => Effect.succeedNone,
+                invalidate: () => Effect.void,
+              }),
               Layer.mock(GitHubCredentials.GitHubCredentials)({
+                saved: () => Effect.succeedNone,
                 get: (host) =>
                   Effect.succeed({
                     host,

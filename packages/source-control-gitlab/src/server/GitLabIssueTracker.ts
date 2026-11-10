@@ -1,13 +1,5 @@
-/**
- * GitLab's issue tracker over `glab api`, which signs every request with the credentials the
- * checkout's remote resolves to, the way the merge request reads do.
- *
- * GitLab pages by offset and reports no total, so every cursor here is a page number and a full
- * page is the only sign that more exists. Reads that GitLab keeps on separate endpoints (notes,
- * label events, linked merge requests, awards) are read one page each and joined into the detail.
- *
- * @module source-control-gitlab/server/GitLabIssueTracker
- */
+// GitLab pages by offset with no total, so cursors are page numbers and only a full page means
+// more. Notes, label events, linked merge requests and awards are read one page each.
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";

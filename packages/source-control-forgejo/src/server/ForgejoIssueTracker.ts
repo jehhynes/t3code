@@ -1,13 +1,5 @@
-/**
- * Forgejo's issue tracker, over the same `ForgejoCli.api` the pull request reads use: it resolves
- * the server, its port and the login from the checkout's remote, so a self-hosted instance on a
- * custom host is addressed the way its merge requests already are.
- *
- * Forgejo pages by number and announces a next page in a `Link` header, which the CLI surfaces
- * on stderr; every cursor here is the next page number.
- *
- * @module source-control-forgejo/server/ForgejoIssueTracker
- */
+// Reuses `ForgejoCli.api`, which resolves server, port and login from the checkout's remote.
+// Forgejo pages by number and the CLI surfaces the `Link` header on stderr, so cursors are pages.
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -339,10 +331,10 @@ export const make: Effect.Effect<IssueTrackerApi, never, ForgejoCli.ForgejoCli> 
 
       getViewer: (input) => getViewer({ ...input, scope: "" }, "getViewer"),
 
-      listIssues: (input) => {
+      listIssues: Effect.fn("ForgejoIssueTracker.listIssues")(function* (input) {
         const page = parsePage(input.cursor);
         if (page === null) {
-          return Effect.fail(refused("listIssues", "The cursor was not one Forgejo handed out."));
+          return yield* refused("listIssues", "The cursor was not one Forgejo handed out.");
         }
         const params = new URLSearchParams({
           type: "issues",
@@ -360,19 +352,18 @@ export const make: Effect.Effect<IssueTrackerApi, never, ForgejoCli.ForgejoCli> 
                 ? "mentioned_by"
                 : null;
         if (involvement !== null) params.set(involvement, input.viewer);
-        return readPage(
+        const { rows, nextCursor } = yield* readPage(
           input,
           "listIssues",
           `${repoPath(input.scope)}/issues?${params}`,
           page,
           ForgejoIssue,
-        ).pipe(
-          Effect.map(({ rows, nextCursor }) => ({
-            items: rows.flatMap((issue) => (issue.pull_request ? [] : [forgejoIssue(issue)])),
-            nextCursor,
-          })),
         );
-      },
+        return {
+          items: rows.flatMap((issue) => (issue.pull_request ? [] : [forgejoIssue(issue)])),
+          nextCursor,
+        };
+      }),
 
       getIssue: (input) =>
         issueTarget("getIssue", input).pipe(

@@ -73,28 +73,29 @@ const make = Effect.gen(function* () {
       ),
       Effect.mapError(toSqlOrDecodeError("listIssueTrackerBindings", "IssueTrackerBinding")),
     ),
-    set: (input) =>
-      (input.binding === null
-        ? sql`DELETE FROM issue_tracker_bindings WHERE project_id = ${input.projectId}`
-        : sql`
-            INSERT INTO issue_tracker_bindings (project_id, tracker, scope, updated_at)
-            VALUES (${input.projectId}, ${input.binding.tracker}, ${input.binding.scope}, ${input.updatedAt})
-            ON CONFLICT (project_id)
-            DO UPDATE SET tracker = excluded.tracker, scope = excluded.scope, updated_at = excluded.updated_at
-          `
-      ).pipe(
-        Effect.asVoid,
-        Effect.mapError(
-          (cause) => new PersistenceSqlError({ operation: "setIssueTrackerBinding", cause }),
-        ),
+    set: Effect.fn("IssueTrackerBindingsRepository.set")(
+      function* (input) {
+        yield* input.binding === null
+          ? sql`DELETE FROM issue_tracker_bindings WHERE project_id = ${input.projectId}`
+          : sql`
+              INSERT INTO issue_tracker_bindings (project_id, tracker, scope, updated_at)
+              VALUES (${input.projectId}, ${input.binding.tracker}, ${input.binding.scope}, ${input.updatedAt})
+              ON CONFLICT (project_id)
+              DO UPDATE SET tracker = excluded.tracker, scope = excluded.scope, updated_at = excluded.updated_at
+            `;
+      },
+      Effect.mapError(
+        (cause) => new PersistenceSqlError({ operation: "setIssueTrackerBinding", cause }),
       ),
-    removeTracker: (tracker) =>
-      sql`DELETE FROM issue_tracker_bindings WHERE tracker = ${tracker}`.pipe(
-        Effect.asVoid,
-        Effect.mapError(
-          (cause) => new PersistenceSqlError({ operation: "removeIssueTrackerBindings", cause }),
-        ),
+    ),
+    removeTracker: Effect.fn("IssueTrackerBindingsRepository.removeTracker")(
+      function* (tracker) {
+        yield* sql`DELETE FROM issue_tracker_bindings WHERE tracker = ${tracker}`;
+      },
+      Effect.mapError(
+        (cause) => new PersistenceSqlError({ operation: "removeIssueTrackerBindings", cause }),
       ),
+    ),
   });
 });
 

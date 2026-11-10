@@ -19,16 +19,9 @@ function isHostOf(hostname: string, apex: string, label?: string): boolean {
 }
 
 /**
- * The tracker, scope and key behind an issue URL on a host this can read, or null for anything
- * else — a pull request, a repository root, a host this cannot tell apart from an ordinary link.
- * Like `parseChangeRequestUrl`, nothing here guesses: each host is recognised by the path shape it
- * alone uses, guarded by a hostname it could plausibly be served from. GitLab's `/-/` marker is
- * trusted on any hostname; `/issues/` is generic enough that it is only believed from a GitHub-ish
- * or Forgejo-ish host, since Forgejo and Gitea write it on any domain.
- *
- * Standalone trackers (Linear's `linear.app/<team>/issue/ENG-123`, Jira's `/browse/ENG-123`)
- * are not recognised yet: their scope is a team or project key the URL only partly carries, so
- * resolving one needs the project binding that layer adds.
+ * Each host is recognised only by a path shape it alone uses, from a plausible hostname; GitLab's
+ * `/-/` is trusted anywhere, `/issues/` only on GitHub- or Forgejo-like hosts. Standalone tracker
+ * URLs are not recognised: their scope needs the project binding.
  */
 export function parseIssueUrl(targetUrl: string): IssueLink | null {
   let url: URL;

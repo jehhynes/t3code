@@ -36,11 +36,15 @@ export function fromTrackers(
 }
 
 const make = Effect.gen(function* () {
-  const trackers = yield* Effect.forEach(
+  const hosts = yield* BuiltInDrivers.SourceControlDrivers;
+  const standalone = yield* Effect.forEach(
     BuiltInIssueTrackers.BUILT_IN_ISSUE_TRACKERS,
     (driver) => driver.make,
   );
-  return fromTrackers(trackers);
+  return fromTrackers([
+    ...hosts.flatMap(({ instance }) => (instance.issues ? [instance.issues] : [])),
+    ...standalone,
+  ]);
 });
 
 export const layer = Layer.effect(IssueTrackerRegistry, make).pipe(

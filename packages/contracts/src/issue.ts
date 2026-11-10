@@ -75,15 +75,9 @@ export const IssueReaction = Schema.Struct({
 export type IssueReaction = typeof IssueReaction.Type;
 
 /**
- * Addresses one issue. `tracker` picks the driver, `scope` is the tracker's own container — the
- * `owner/repo` path on a git host, a team or project key on Linear and Jira — and `key` is the
- * issue's native id within it: `"123"` on GitHub, `"ENG-123"` on Linear. `host` is where the
- * tracker is served from, for a kind that can be self-hosted (GitHub Enterprise, GitLab, Forgejo);
- * absent means the kind's public host.
- *
- * `projectId` names the project whose checkout and credentials serve the read. An issue outside
- * every project's own scope can still be read through any project on the same tracker and host,
- * but the service refuses to write to it.
+ * `scope` is the tracker's container (`owner/repo`, a team key) and `key` the native id within it;
+ * absent `host` means the kind's public host. Issues outside the reading project's own scope can be
+ * read through any project on the same tracker and host, but never written.
  */
 export const IssueRef = Schema.Struct({
   projectId: ProjectId,

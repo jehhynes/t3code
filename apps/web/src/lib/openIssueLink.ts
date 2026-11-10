@@ -1,7 +1,6 @@
 import type { EnvironmentId, IssueRef, ScopedThreadRef } from "@t3tools/contracts";
-import { pullRequestHostOf, SourceControlProviderKind } from "@t3tools/contracts";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
 import { parseIssueUrl, type IssueLink } from "@t3tools/shared/issueUrl";
-import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 import type { MouseEvent } from "react";
 
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
@@ -16,12 +15,12 @@ function projectIssueBinding(project: EnvironmentProject): {
   readonly scope: string;
 } | null {
   const identity = project.repositoryIdentity;
-  const scope = sourceControlRepositorySelector(identity);
+  const scope = sourceControlClients.repositorySelector(identity);
   const kind = identity?.provider;
   if (!identity || kind === undefined || kind === "unknown" || scope === null) return null;
   return {
     tracker: kind,
-    host: pullRequestHostOf(identity, SourceControlProviderKind.make(kind)),
+    host: sourceControlClients.changeRequestHost(identity, kind),
     scope: scope.toLowerCase(),
   };
 }

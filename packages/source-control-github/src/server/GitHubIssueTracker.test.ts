@@ -10,6 +10,7 @@ import * as GitHubCredentials from "./GitHubCredentials.ts";
 import * as GitHubRest from "./GitHubRest.ts";
 import * as GitHubQuota from "./GitHubQuota.ts";
 import * as SourceControlRateLimit from "@t3tools/source-control-core/server/SourceControlRateLimit";
+import * as GitHubAppSignIn from "./GitHubAppSignIn.ts";
 import * as GitHubIssueTracker from "./GitHubIssueTracker.ts";
 
 const DETAIL_RESPONSE = JSON.stringify({
@@ -142,6 +143,7 @@ function transport(httpClient: HttpClient.HttpClient) {
         GitHubQuota.layer,
         SourceControlRateLimit.layer,
         Layer.mock(GitHubCredentials.GitHubCredentials)({
+          saved: () => Effect.succeedNone,
           get: (host) =>
             Effect.succeed({
               host,
@@ -151,6 +153,11 @@ function transport(httpClient: HttpClient.HttpClient) {
             }),
         }),
         Layer.succeed(HttpClient.HttpClient, httpClient),
+        Layer.mock(GitHubAppSignIn.GitHubAppSignIn)({
+          enabled: false,
+          token: () => Effect.succeedNone,
+          invalidate: () => Effect.void,
+        }),
       ),
     ),
   );

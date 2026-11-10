@@ -1,11 +1,5 @@
-/**
- * The port every issue tracker implements. Implementations own their own tool and JSON shapes
- * and hand back the neutral contract types; anything a tracker cannot do is declared in
- * `capabilities` rather than failing at call time, and the service refuses a call outside them
- * before it gets here.
- *
- * @module issue-tracker-core/server/IssueTracker
- */
+// Implementations return the neutral contract types. What a tracker cannot do is declared in
+// `capabilities`, and the service refuses calls outside them before they reach the tracker.
 import * as Schema from "effect/Schema";
 import type * as Effect from "effect/Effect";
 import type {
