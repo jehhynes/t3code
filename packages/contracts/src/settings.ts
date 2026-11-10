@@ -1065,6 +1065,8 @@ export interface BranchNamingOptions {
 
 export const DEFAULT_AUTOMATIC_GIT_FETCH_INTERVAL = Duration.seconds(30);
 export const DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL = Duration.minutes(5);
+/** Fork-only (jehhynes/t3code#10): how often the server reads the GitHub boards that are on. */
+export const DEFAULT_GITHUB_BOARD_READ_INTERVAL = Duration.minutes(5);
 
 export const BackgroundActivityProfile = Schema.Literals([
   "balanced",
@@ -1532,6 +1534,11 @@ export const ServerSettings = Schema.Struct({
   ),
   githubBoards: Schema.Array(GitHubBoardConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  githubBoardReadInterval: Schema.DurationFromMillis.pipe(
+    Schema.withDecodingDefault(
+      Effect.succeed(Duration.toMillis(DEFAULT_GITHUB_BOARD_READ_INTERVAL)),
+    ),
   ),
   // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(

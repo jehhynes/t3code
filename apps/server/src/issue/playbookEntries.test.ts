@@ -55,7 +55,8 @@ const row = (
   playbook: string | null,
   startedBy: string | null,
   boardKey = "acme/1",
-): PlaybookEntryRow => ({ issueKey: key(number), board: boardKey, playbook, startedBy });
+  autoTried = false,
+): PlaybookEntryRow => ({ issueKey: key(number), board: boardKey, playbook, startedBy, autoTried });
 
 describe("reconcilePlaybookEntries", () => {
   it.each<{
@@ -89,14 +90,18 @@ describe("reconcilePlaybookEntries", () => {
       writes: [],
     },
     {
-      name: "an issue that moves to another selection waits with it, open thread or not",
-      rows: [row("1", "develop", started), row("2", "develop", started)],
+      name: "an issue that moves to another selection waits with it, open thread or not, untried",
+      rows: [row("1", "develop", started, "acme/1", true), row("2", "develop", started)],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
       writes: [row("1", "ship", null), row("2", "ship", null)],
     },
     {
       name: "an issue that leaves every selection, or the board, leaves its entry",
-      rows: [row("1", "develop", started), row("2", "develop", null), row("3", null, null)],
+      rows: [
+        row("1", "develop", started),
+        row("2", "develop", null, "acme/1", true),
+        row("3", null, null),
+      ],
       boards: [board(1, [entry("1", null)])],
       writes: [row("1", null, null), row("2", null, null)],
     },
@@ -125,10 +130,10 @@ describe("reconcilePlaybookEntries", () => {
       writes: [row("1", "ship", null, "acme/2")],
     },
     {
-      name: "an issue that moved to another board follows it",
-      rows: [row("1", "develop", started, "acme/1")],
+      name: "an issue that moved to another board follows it, keeping its entry",
+      rows: [row("1", "develop", started, "acme/1", true)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", started, "acme/2")],
+      writes: [row("1", "develop", started, "acme/2", true)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(

@@ -1,5 +1,5 @@
 // Fork-only: an issue waits for Start once each time it enters a selection (jehhynes/t3code#7).
-import type { IssueBoard, IssueBoardEntry } from "@t3tools/contracts";
+import type { IssueBoard, IssueBoardEntry, IssueBoardResult } from "@t3tools/contracts";
 
 import { boardSourceKey } from "../persistence/IssueBoardSources.ts";
 import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybookEntries.ts";
@@ -11,6 +11,25 @@ const samePlaybook = (a: string | null, b: string | null) =>
 /** The playbook an issue waits for Start with: its entry's, until that entry is started. */
 export const waitingPlaybook = (row: PlaybookEntryRow | undefined): string | null =>
   row !== undefined && row.startedBy === null ? row.playbook : null;
+
+/**
+ * The issue's entry as `result` lists it waiting with `playbook`, on a board that is on and was
+ * read, or undefined; always undefined while any playbook cannot select.
+ */
+export function entryWaitingIn(
+  result: IssueBoardResult | null,
+  issueKey: string,
+  playbook: string,
+): IssueBoardEntry | undefined {
+  if (result === null || result.playbookErrors.length > 0) return undefined;
+  return result.boards
+    .filter((board) => board.enabled && board.error === null)
+    .flatMap((board) => board.entries)
+    .find(
+      (entry) =>
+        issueThreadKey(entry) === issueKey && samePlaybook(entry.waitingPlaybook ?? null, playbook),
+    );
+}
 
 /**
  * The rows to write so each issue's record follows the boards as read; a row left out is
@@ -52,18 +71,19 @@ export function reconcilePlaybookEntries(input: {
         playbook: entry.playbook,
         // An issue already worked on when first seen does not wait.
         startedBy: entry.playbook !== null && entry.hasOpenThread ? OPEN_THREAD : null,
+        autoTried: false,
       });
     } else if (!deciding.has(row.board)) {
       continue;
     } else if (!samePlaybook(row.playbook, entry.playbook)) {
-      writes.push({ issueKey, board, playbook: entry.playbook, startedBy: null });
+      writes.push({ issueKey, board, playbook: entry.playbook, startedBy: null, autoTried: false });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
     }
   }
   for (const row of input.rows.values()) {
     if (row.playbook !== null && deciding.has(row.board) && !listed.has(row.issueKey)) {
-      writes.push({ ...row, playbook: null, startedBy: null });
+      writes.push({ ...row, playbook: null, startedBy: null, autoTried: false });
     }
   }
   return writes;

@@ -76,6 +76,8 @@ export const IssuePlaybook = Schema.Struct({
   modelSelection: Schema.optionalKey(ModelSelection),
   runtimeMode: Schema.optionalKey(RuntimeMode),
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
+  /** Starts its thread itself when an issue enters its selection, instead of waiting for Start. */
+  autoStart: Schema.optionalKey(Schema.Boolean),
 });
 export type IssuePlaybook = typeof IssuePlaybook.Type;
 

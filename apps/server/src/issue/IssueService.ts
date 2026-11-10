@@ -193,6 +193,10 @@ export class IssueService extends Context.Service<
     readonly subscribeBoard: Stream.Stream<IssueBoardResult, IssueError>;
     /** Each board result as it is published, from any read; never reads by itself. */
     readonly boardChanges: Stream.Stream<IssueBoardResult>;
+    /** Runs `use` with the latest result while no other result can be published. */
+    readonly withLatestBoard: <A, E, R>(
+      use: (latest: IssueBoardResult | null) => Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E, R>;
     /** Publishes the latest result again with which issues wait and have threads now. */
     readonly refreshWaiting: Effect.Effect<void, IssueError>;
     /** Turns a board that settings name on or off; the server keeps this, not settings. */
@@ -684,6 +688,12 @@ const make = Effect.gen(function* () {
     });
   }).pipe(publishing.withPermits(1), Effect.withSpan("IssueService.refreshWaiting"));
 
+  const withLatestBoard: IssueService["Service"]["withLatestBoard"] = Effect.fn(
+    "IssueService.withLatestBoard",
+  )(function* <A, E, R>(use: (latest: IssueBoardResult | null) => Effect.Effect<A, E, R>) {
+    return yield* use(yield* SubscriptionRef.get(latestBoard));
+  }, publishing.withPermits(1));
+
   const setBoardEnabled: IssueService["Service"]["setBoardEnabled"] = Effect.fn(
     "IssueService.setBoardEnabled",
   )(function* (input) {
@@ -933,6 +943,7 @@ const make = Effect.gen(function* () {
     board,
     subscribeBoard,
     boardChanges,
+    withLatestBoard,
     refreshWaiting,
     setBoardEnabled,
     detail: traced("detail", detail),

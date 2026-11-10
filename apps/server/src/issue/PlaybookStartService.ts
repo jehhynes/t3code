@@ -34,6 +34,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
+import { entryWaitingIn } from "./playbookEntries.ts";
 import { renderPlaybookPrompt } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
@@ -46,6 +47,13 @@ export class PlaybookStartService extends Context.Service<
      */
     readonly start: (
       input: IssuePlaybookStartInput,
+      options?: {
+        /**
+         * A start by the server itself: only a playbook that starts by itself while
+         * `playbooks.json` has no mistake, and only an entry not tried before.
+         */
+        readonly auto?: boolean;
+      },
     ) => Effect.Effect<IssuePlaybookStartResult, IssueOperationError>;
   }
 >()("t3/issue/PlaybookStartService") {}
@@ -186,8 +194,9 @@ const make = Effect.gen(function* () {
   });
 
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
-    function* ({ playbook: name, entry }) {
-      const { playbooks } = yield* readPlaybooksFile(playbooksPath).pipe(
+    function* ({ playbook: name, entry: requested }, options) {
+      const auto = options?.auto === true;
+      const { playbooks, errors } = yield* readPlaybooksFile(playbooksPath).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
       );
       const playbook = playbooks.find(
@@ -196,35 +205,52 @@ const make = Effect.gen(function* () {
       if (playbook === undefined) {
         return yield* fail(`Playbook ${name} is not in ${PLAYBOOKS_FILE}, or it has a mistake.`);
       }
-      const projectId = entry.projectId;
-      if (projectId === null) {
-        return yield* fail(`No T3 Code project is for ${entry.scope}.`);
+      // A mistake can hand a playbook issues that are not its own, so nothing starts by itself.
+      if (auto && (errors.length > 0 || playbook.autoStart !== true)) {
+        return yield* fail(`Playbook ${playbook.name} does not start by itself now.`);
       }
-      const project = Option.getOrUndefined(
-        yield* projects
-          .getById(projectId)
-          .pipe(Effect.mapError((cause) => fail("The project could not be read.", cause))),
-      );
-      if (project === undefined) return yield* fail("The issue's project no longer exists.");
+      if (requested.projectId === null) {
+        return yield* fail(`No T3 Code project is for ${requested.scope}.`);
+      }
 
-      // Claiming the entry makes a second Start of it, from any client, refuse.
+      // Claiming the entry makes a second Start of it, from any client, refuse. Every step that
+      // can fail comes after it, so a failed start by the server itself counts as its one try.
       const id = yield* random.uuidV4();
       const claim = {
-        issueKey: IssueThreadLinks.issueThreadKey(entry),
+        issueKey: IssueThreadLinks.issueThreadKey(requested),
         startedBy: `issue-playbook:${id}`,
       };
+      const claimEntry = entries
+        .claim({ ...claim, playbook: playbook.name, auto })
+        .pipe(
+          Effect.mapError((cause) =>
+            fail("Which issues wait for Start could not be saved.", cause),
+          ),
+        );
+      // By itself, only while the latest read still lists the issue waiting: a newer read may have
+      // found a mistake, an unreadable account, or the board off or failed.
+      const claimed: Effect.Effect<IssueBoardEntry | null, IssueOperationError> = auto
+        ? issues.withLatestBoard((latest) => {
+            const current = entryWaitingIn(latest, claim.issueKey, playbook.name);
+            return current === undefined || current.projectId === null
+              ? Effect.succeed(null)
+              : claimEntry.pipe(Effect.map((ok) => (ok ? current : null)));
+          })
+        : claimEntry.pipe(Effect.map((ok) => (ok ? requested : null)));
       // Acquired uninterruptibly, so an interrupted Start cannot keep a claim it never used.
       return yield* Effect.acquireUseRelease(
-        entries
-          .claim({ ...claim, playbook: playbook.name })
-          .pipe(
-            Effect.mapError((cause) =>
-              fail("Which issues wait for Start could not be saved.", cause),
-            ),
-          ),
-        (claimed) =>
-          claimed
-            ? sendOrLaunch(playbook, entry, project, id)
+        claimed,
+        (entry) =>
+          entry !== null && entry.projectId !== null
+            ? projects.getById(entry.projectId).pipe(
+                Effect.mapError((cause) => fail("The project could not be read.", cause)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
+                    onSome: (project) => sendOrLaunch(playbook, entry, project, id),
+                  }),
+                ),
+              )
             : Effect.fail(
                 fail(
                   `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
@@ -232,20 +258,18 @@ const make = Effect.gen(function* () {
               ),
         // A Start that fails or is interrupted leaves the issue waiting. Either way every client
         // is shown the entry as it now is before Start answers.
-        (claimed, exit) =>
-          !claimed
+        (entry, exit) =>
+          entry === null
             ? Effect.void
             : (Exit.isFailure(exit)
-                ? entries
-                    .release(claim)
-                    .pipe(
-                      Effect.catchCause((cause) =>
-                        Effect.logError("A failed Start left its issue started", {
-                          ...claim,
-                          cause,
-                        }),
-                      ),
-                    )
+                ? entries.release(claim).pipe(
+                    Effect.catchCause((cause) =>
+                      Effect.logError("A failed Start left its issue started", {
+                        ...claim,
+                        cause,
+                      }),
+                    ),
+                  )
                 : Effect.void
               ).pipe(Effect.andThen(issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true })))),
       );

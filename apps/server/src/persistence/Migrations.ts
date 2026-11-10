@@ -85,6 +85,7 @@ import Migration0079 from "./Migrations/079_DelegatedRecoveryIndexes.ts";
 import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import IssueBoardSourcesSchema from "./Migrations/unnumbered/IssueBoardSources.ts";
 import IssuePlaybookEntriesSchema from "./Migrations/unnumbered/IssuePlaybookEntries.ts";
+import IssuePlaybookEntriesAutoTriedSchema from "./Migrations/unnumbered/IssuePlaybookEntriesAutoTried.ts";
 import IssueTrackerBindingsSchema from "./Migrations/unnumbered/IssueTrackerBindings.ts";
 
 const migrationEntries = [
@@ -178,6 +179,7 @@ const unnumberedSchemaSteps = [
   IssueTrackerBindingsSchema,
   IssueBoardSourcesSchema,
   IssuePlaybookEntriesSchema,
+  IssuePlaybookEntriesAutoTriedSchema,
 ];
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

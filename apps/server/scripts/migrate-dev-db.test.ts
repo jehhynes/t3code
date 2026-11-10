@@ -99,6 +99,8 @@ const createFixtureSource = Effect.fn("createMigrateDevDbFixtureSource")(functio
         (environment_id, secret_name, label, urls_json, access, linked_at, expires_at)
         VALUES ('environment-box', 'peer-link-box', 'Box', '["https://box.example"]', 'auto',
           '2026-08-01', '2027-08-01')`;
+      yield* sql`INSERT INTO issue_board_sources (owner, number, enabled_at)
+        VALUES ('acme', 1, '2026-08-01')`;
     }),
   );
   return databasePath;
@@ -135,6 +137,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
             webhooks: number;
             transfers: number;
             links: number;
+            boards: number;
           }>`
             SELECT
               (SELECT COUNT(*) FROM auth_sessions) AS auth,
@@ -142,7 +145,8 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
               (SELECT COUNT(*) FROM scheduled_task_webhook_replay_keys) +
                 (SELECT COUNT(*) FROM scheduled_task_webhook_pending) AS webhooks,
               (SELECT COUNT(*) FROM orchestration_v2_projection_context_transfers) AS transfers,
-              (SELECT COUNT(*) FROM peer_environment_links) AS links`;
+              (SELECT COUNT(*) FROM peer_environment_links) AS links,
+              (SELECT COUNT(*) FROM issue_board_sources) AS boards`;
           return { threads, events, sessions, leftovers };
         }),
       );
@@ -164,6 +168,7 @@ it.layer(NodeServices.layer)("migrate-dev-db", (it) => {
         webhooks: 0,
         transfers: 0,
         links: 0,
+        boards: 0,
       });
     }),
   );

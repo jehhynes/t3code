@@ -199,6 +199,8 @@ const CLEARED_TABLES: ReadonlyArray<string> = [
   "auth_sessions",
   "auth_pairing_links",
   "peer_environment_links",
+  // Fork-only: every board starts off, so a seeded server reads and starts nothing by itself.
+  "issue_board_sources",
 ];
 
 const PROVIDER_SESSIONS_TABLE = "orchestration_v2_projection_provider_sessions";

@@ -6,6 +6,7 @@ import {
   ProjectId,
   ThreadId,
   type IssueBoardEntry,
+  type IssueBoardResult,
   type IssueOperationError,
   type IssuePlaybookStartResult,
   type Project,
@@ -72,6 +73,7 @@ const playbooks = JSON.stringify([
     interactionMode: "plan",
   },
   { name: "plain", prompt: "Look at {{issue.url}}." },
+  { name: "deploy", prompt: "Deploy {{issue.url}}.", autoStart: true },
 ]);
 
 interface Options {
@@ -81,6 +83,12 @@ interface Options {
   readonly openIssueKeys?: ReadonlyArray<string>;
   readonly launch?: ThreadLaunchService.ThreadLaunchService["Service"]["launch"];
   readonly link?: ThreadIssueService.ThreadIssueService["Service"]["link"];
+  /** `playbooks.json` as written; the playbooks above when left out. */
+  readonly playbooksFile?: string;
+  /** Whether the server starts it by itself. */
+  readonly auto?: boolean;
+  /** The latest board read; one listing the issue waiting when left out. */
+  readonly latest?: IssueBoardResult;
 }
 
 const issueKey = "github github.com acme/web 6";
@@ -111,7 +119,10 @@ function harness<A, E>(
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-playbook-start-" });
     yield* fs.makeDirectory(`${baseDir}/userdata`, { recursive: true });
-    yield* fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks);
+    yield* fs.writeFileString(
+      `${baseDir}/userdata/playbooks.json`,
+      input.playbooksFile ?? playbooks,
+    );
     return yield* Effect.gen(function* () {
       const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
       const waitingWith = input.waitingWith === undefined ? "develop" : input.waitingWith;
@@ -121,12 +132,15 @@ function harness<A, E>(
           board: "acme/1",
           playbook: waitingWith ?? "develop",
           startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
+          autoTried: false,
         },
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
       return yield* body({
         start: (playbook) =>
-          service.start({ playbook, entry: input.entry ?? entry }).pipe(Effect.result),
+          service
+            .start({ playbook, entry: input.entry ?? entry }, { auto: input.auto === true })
+            .pipe(Effect.result),
         launched,
         linked,
         sent,
@@ -199,6 +213,28 @@ function harness<A, E>(
               IssuePlaybookEntries.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
               Layer.mock(IssueService.IssueService)({
                 refreshWaiting: Effect.sync(() => void (refreshed += 1)),
+                withLatestBoard: (use) =>
+                  use(
+                    input.latest ?? {
+                      boards: [
+                        {
+                          owner: "acme",
+                          number: 1,
+                          statusField: "Status",
+                          enabled: true,
+                          error: null,
+                          entries: [
+                            {
+                              ...(input.entry ?? entry),
+                              waitingPlaybook:
+                                input.waitingWith === undefined ? "develop" : input.waitingWith,
+                            },
+                          ],
+                        },
+                      ],
+                      playbookErrors: [],
+                    },
+                  ),
               }),
               Layer.succeed(
                 SecureRandom.SecureRandom,
@@ -406,6 +442,57 @@ describe("PlaybookStartService.start", () => {
             expect(launched).toHaveLength(1);
           }),
       );
+    }),
+  );
+
+  it.effect("counts a start by the server itself as its one try, also when it fails", () =>
+    Effect.gen(function* () {
+      const failed = yield* start({
+        playbook: "deploy",
+        waitingWith: "deploy",
+        auto: true,
+        entry: { ...entry, projectId: ProjectId.make("gone") },
+      });
+      expect(failed.result).toMatchObject({
+        _tag: "Failure",
+        failure: { detail: "The issue's project no longer exists." },
+      });
+      // It waits for Start, and the server does not try it again.
+      expect(failed.stored).toMatchObject({ startedBy: null, autoTried: true });
+      expect(failed.refreshed()).toBe(1);
+
+      const started = yield* start({ playbook: "deploy", waitingWith: "deploy", auto: true });
+      expect(started.result).toMatchObject({ _tag: "Success" });
+      expect(started.stored?.autoTried).toBe(true);
+    }),
+  );
+
+  it.effect.each([
+    { name: "a playbook that waits for Start", input: { playbook: "develop" } },
+    {
+      name: "any playbook while playbooks.json has a mistake",
+      input: {
+        playbook: "deploy",
+        waitingWith: "deploy",
+        playbooksFile: playbooks.replace(/]$/, ', { "name": "broken" }]'),
+      },
+    },
+    {
+      name: "an issue a newer read no longer lists waiting, as when the account cannot be read",
+      input: {
+        playbook: "deploy",
+        waitingWith: "deploy",
+        latest: { boards: [], playbookErrors: ["Your GitHub account could not be read"] },
+      },
+    },
+  ])("does not start $name by itself, nor count a try", ({ input }) =>
+    Effect.gen(function* () {
+      const { result, launched, stored, refreshed } = yield* start({ ...input, auto: true });
+
+      expect(result).toMatchObject({ _tag: "Failure" });
+      expect(launched).toEqual([]);
+      expect(stored).toMatchObject({ startedBy: null, autoTried: false });
+      expect(refreshed()).toBe(0);
     }),
   );
 

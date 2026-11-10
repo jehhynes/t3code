@@ -49,6 +49,7 @@ import { speechStreamRouteLayer } from "./speech/stream.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issue/IssueService.ts";
+import * as PlaybookAutoStart from "./issue/PlaybookAutoStart.ts";
 import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueBoardSources from "./persistence/IssueBoardSources.ts";
@@ -447,6 +448,13 @@ const layerIssueService = Layer.merge(IssueService.layer, IssueTrackerConnection
 // One instance serves MCP link calls and refreshes snapshots on thread events.
 const layerThreadIssueService = ThreadIssueService.layer.pipe(Layer.provide(layerIssueService));
 
+// One instance, shared with the board timer, so Start and the timer see the same board reads.
+const layerPlaybookStartService = PlaybookStartService.layer.pipe(
+  Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
+  Layer.provide(layerThreadIssueService),
+  Layer.provide(layerIssueService),
+);
+
 const layerGitManager = GitManager.layer.pipe(
   Layer.provide(Layer.merge(ProjectionStoreV2.layer, ProjectStore.layer)),
   Layer.provideMerge(RuntimeLayer.layerProjectSetupScriptRunner),
@@ -715,6 +723,12 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ProviderInstallation.layer,
   ReplayMarkers.layer,
   Layer.effectDiscard(ProjectSettingsOverrideSweep.sweep),
+  // Fork-only: reads the boards on a timer and starts playbooks that start by themselves.
+  PlaybookAutoStart.layer.pipe(
+    Layer.provide(layerPlaybookStartService),
+    Layer.provide(IssuePlaybookEntries.layer),
+    Layer.provide(layerIssueService),
+  ),
 ).pipe(
   Layer.provideMerge(layerOrchestrationApplication),
   Layer.provideMerge(RuntimeLayer.layerEventInfrastructure),
@@ -851,11 +865,7 @@ const layerMakeRoutes = Layer.mergeAll(
   Layer.provide(PeerLinkRequests.layer),
   // Share the service so HTTP/WS clients single-flight reads and invalidate each other's cached patches.
   Layer.provide(layerPullRequestService),
-  Layer.provide(
-    PlaybookStartService.layer.pipe(
-      Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
-    ),
-  ),
+  Layer.provide(layerPlaybookStartService),
   Layer.provide(layerThreadIssueService),
   Layer.provide(layerIssueService),
   // The same activity instance RunExecutionService reports to, by layer memoization.

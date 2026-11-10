@@ -23,13 +23,20 @@ Add `githubBoards` to the server's `settings.json` (`~/.t3/userdata/settings.jso
 - Boards are read with the server's GitHub sign-in, which needs access to the board's projects
   (the `project` or `read:project` scope for a GitHub CLI token).
 
-A change to the file applies at the Issues page's next refresh. Remove a board from the list to
-stop showing it.
+The server reads every board that is on every five minutes, whether or not the Issues page is open,
+so a [playbook that starts by itself](playbooks.md#start-by-itself) can start. Set
+`githubBoardReadInterval` in milliseconds to change how often, such as `120000` for two minutes; a
+change applies at once. A value above zero but under 10 seconds counts as 10 seconds, and zero or
+less as five minutes. Opening the Issues page shows the latest read at once, and reads the boards
+again when that read is more than 30 seconds old; its refresh button reads them again.
+
+A change to `githubBoards` applies at the next read. Remove a board from the list to stop showing
+it.
 
 ## Turn a board on and off
 
 A board you add starts off: its section shows only its heading, marked **Off**, and T3 Code does
-not read it from GitHub. Turn it on with the switch in its heading, and its issues list at once.
+not read it from GitHub, so nothing starts from it. Turn it on with the switch in its heading, and its issues list at once.
 Turn it off for the weeks you do not work on it; its threads stay as they are.
 
 The server remembers which boards are on across restarts. The switch never changes

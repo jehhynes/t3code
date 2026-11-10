@@ -22,6 +22,8 @@ const PlaybookEntryRow = Schema.Struct({
    * first seen with an open thread; null while it waits for Start.
    */
   startedBy: Schema.NullOr(Schema.String),
+  /** Whether the server tried to start this entry by itself; a try is never repeated. */
+  autoTried: Schema.BooleanFromBit,
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -43,6 +45,8 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       readonly playbook: string;
       /** Unique to this Start. */
       readonly startedBy: string;
+      /** A start by the server itself, which claims only an entry it has not tried. */
+      readonly auto?: boolean;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /** Makes the entry wait again while this claim still holds it. */
     readonly release: (input: {
@@ -64,7 +68,7 @@ const make = Effect.gen(function* () {
     Result: PlaybookEntryRow,
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
-        started_by AS "startedBy"
+        started_by AS "startedBy", auto_tried AS "autoTried"
       FROM issue_playbook_entries
     `,
   });
@@ -82,12 +86,16 @@ const make = Effect.gen(function* () {
         const next = new Map(rows);
         for (const row of writes) {
           yield* sql`
-            INSERT INTO issue_playbook_entries (issue_key, board, playbook, started_by)
-            VALUES (${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy})
+            INSERT INTO issue_playbook_entries (issue_key, board, playbook, started_by, auto_tried)
+            VALUES (
+              ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
+              ${row.autoTried ? 1 : 0}
+            )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
               playbook = excluded.playbook,
-              started_by = excluded.started_by
+              started_by = excluded.started_by,
+              auto_tried = excluded.auto_tried
           `;
           next.set(row.issueKey, row);
         }
@@ -99,20 +107,26 @@ const make = Effect.gen(function* () {
     ),
     claim: Effect.fn("IssuePlaybookEntriesRepository.claim")(
       function* (input) {
-        const [row] = yield* sql<{ playbook: string | null; startedBy: string | null }>`
-          SELECT playbook AS "playbook", started_by AS "startedBy"
+        const [row] = yield* sql<{
+          playbook: string | null;
+          startedBy: string | null;
+          autoTried: number;
+        }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy", auto_tried AS "autoTried"
           FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
         `;
         // Names compare as selection compares them, which SQLite's ASCII-only lower() does not.
         if (
           row === undefined ||
           row.startedBy !== null ||
-          row.playbook?.toLowerCase() !== input.playbook.toLowerCase()
+          row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
+          (input.auto === true && row.autoTried !== 0)
         ) {
           return false;
         }
         yield* sql`
-          UPDATE issue_playbook_entries SET started_by = ${input.startedBy}
+          UPDATE issue_playbook_entries
+          SET started_by = ${input.startedBy}, auto_tried = ${input.auto === true ? 1 : row.autoTried}
           WHERE issue_key = ${input.issueKey}
         `;
         return true;

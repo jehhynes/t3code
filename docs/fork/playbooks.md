@@ -3,6 +3,7 @@
 A playbook is a named way of working on an issue. Each playbook has rules that pick the board
 issues it handles, and a prompt and settings for the thread it starts. The Issues page shows on
 each board issue the playbook that picks it, and lists the issues waiting for you to start them.
+A playbook can also start its threads by itself.
 
 ## Define your playbooks
 
@@ -20,7 +21,12 @@ git. It holds a list, tried in the order you write it:
     "runtimeMode": "approval-required",
     "interactionMode": "plan"
   },
-  { "name": "ship", "rules": { "status": ["In review"] }, "prompt": "Review {{issue.url}}." },
+  {
+    "name": "ship",
+    "rules": { "status": ["In review"] },
+    "prompt": "Review {{issue.url}}.",
+    "autoStart": true
+  },
   { "name": "other", "prompt": "Triage {{issue.url}}." }
 ]
 ```
@@ -29,7 +35,8 @@ Each board issue gets the first playbook whose rules all match it. A playbook wi
 every issue, so a last one like `other` takes everything the others leave. An issue that no playbook
 matches shows none. Playbook names must differ.
 
-A change to the file applies at the Issues page's next refresh.
+A change to the file applies at the next board read: the server's own, every few minutes (see
+[GitHub boards](issue-boards.md#name-your-boards)), or the Issues page's refresh.
 
 ## Rules
 
@@ -62,6 +69,7 @@ optional; each one you leave out takes what a new thread in the issue's project 
 | `modelSelection`  | The provider instance and model, as `{ "instanceId": "codex", "model": "gpt-5.4" }`    |
 | `runtimeMode`     | The permission mode: `approval-required`, `auto-accept-edits`, `auto` or `full-access` |
 | `interactionMode` | `default`, or `plan` to start in plan mode                                             |
+| `autoStart`       | `true` to [start by itself](#start-by-itself) instead of waiting for Start             |
 
 Without `modelSelection`, the thread takes the default model for new threads in the project, and
 Start fails if there is none. Without `runtimeMode`, it takes the default permission mode. Without
@@ -86,8 +94,8 @@ field with no value, such as an issue with no labels, is left empty.
 ## Start an issue
 
 Above the boards, **Waiting to start** lists the board issues waiting for you to start them, each
-with its playbook. An issue waits once each time it enters a playbook's selection: from when the
-Issues page first reads it there until you start it or it leaves that selection.
+with its playbook. An issue waits once each time it enters a playbook's selection: from when T3
+Code first reads it there until you start it or it leaves that selection.
 
 - Once started, it does not wait again while it stays in that selection, whatever happens to its
   thread: settling the thread does not list it again.
@@ -107,11 +115,29 @@ list. An issue whose repository has no T3 Code project shows that instead of Sta
 fails says why, and the issue stays so you can press Start again; a thread that starts and then
 fails shows its failure in the thread, as any thread does.
 
-Issues enter and leave selections only when the Issues page reads the boards, and only while T3
-Code can tell: a board that is off or cannot be read keeps its issues as they were, and so does
-every issue while `playbooks.json` has a mistake or your GitHub account cannot be read.
+Issues enter and leave selections when T3 Code reads the boards, and only while it can tell: a
+board that is off or cannot be read keeps its issues as they were, and so does every issue while
+`playbooks.json` has a mistake or your GitHub account cannot be read. Starting needs the permission
+to run threads on that environment.
 
-Nothing starts on its own yet. Starting needs the permission to run threads on that environment.
+## Start by itself
+
+A playbook with `"autoStart": true` starts each issue that enters its selection without waiting for
+Start, as Start would: a new thread in the issue's project, or the playbook's prompt in the issue's
+open thread. The server reads the boards on its own timer, so this happens within a few minutes
+with the Issues page closed and no client connected.
+
+- Each entry starts once. After its thread starts, the issue is not started again while it stays
+  in the selection, also after you settle the thread or restart T3 Code.
+- A start that fails leaves the issue under **Waiting to start**, where you can press Start. T3
+  Code does not try it again by itself; the server log says why it failed.
+- Nothing starts by itself while `playbooks.json` has a mistake or your GitHub account cannot be
+  read, nor from a board that is off or could not be read. Once you fix it, the issues that entered
+  meanwhile start once.
+- An issue whose repository has no T3 Code project waits with that reason, and starts by itself
+  once the project exists.
+- When you give a playbook `autoStart`, or turn its board on, the issues already waiting in it
+  start at the next board read, except those whose start by itself already failed.
 
 ## Mistakes
 
@@ -124,4 +150,5 @@ Your settings are untouched.
 - A file that is not valid JSON, or not a list, gives no issue a playbook.
 - When an `assignee` rule is used and the server cannot read your GitHub account, no issue gets a
   playbook.
-- While there is any mistake, the issues waiting to start stay as they were.
+- While there is any mistake, the issues waiting to start stay as they were, and nothing starts
+  by itself.
