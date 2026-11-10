@@ -248,6 +248,7 @@ import * as TraceDiagnostics from "./diagnostics/TraceDiagnostics.ts";
 import * as TriageService from "./triage/TriageService.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issue/IssueService.ts";
+import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as PullRequestReviewGuideService from "./pullRequest/PullRequestReviewGuideService.ts";
 import { listLinkedPullRequestThreads } from "./pullRequest/linkedThreads.ts";
@@ -1403,11 +1404,13 @@ export const subscribeOrchestrationV2Shell = Effect.fn("ws.orchestrationV2.subsc
 const layerWsIssuesRpc = ServerWsIssuesRpcGroup.toLayer(
   Effect.gen(function* () {
     const issues = yield* IssueService.IssueService;
+    const playbookStarts = yield* PlaybookStartService.PlaybookStartService;
     const issueTrackers = yield* IssueTrackerConnections.IssueTrackerConnections;
     return ServerWsIssuesRpcGroup.of({
       [WS_METHODS.issuesList]: (input) => issues.list(input),
       [WS_METHODS.issuesBoard]: () => issues.board,
       [WS_METHODS.issuesSetBoardEnabled]: (input) => issues.setBoardEnabled(input),
+      [WS_METHODS.issuesStartPlaybook]: (input) => playbookStarts.start(input),
       [WS_METHODS.issuesDetail]: (input) => issues.detail(input),
       [WS_METHODS.issuesComments]: (input) => issues.comments(input),
       [WS_METHODS.issuesTemplates]: (input) => issues.templates(input),
@@ -3558,6 +3561,7 @@ export const layer = Layer.unwrap(
     const npmRelease = yield* NpmRelease.NpmRelease;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const issues = yield* IssueService.IssueService;
+    const playbookStarts = yield* PlaybookStartService.PlaybookStartService;
     const issueTrackers = yield* IssueTrackerConnections.IssueTrackerConnections;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
     const peerLinks = yield* PeerLinks.PeerLinks;
@@ -3646,6 +3650,9 @@ export const layer = Layer.unwrap(
               // Share server-lifetime PR caches so WS mutations invalidate every client's HTTP diffs.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(Layer.succeed(IssueService.IssueService, issues)),
+              Layer.provide(
+                Layer.succeed(PlaybookStartService.PlaybookStartService, playbookStarts),
+              ),
               Layer.provide(
                 Layer.succeed(IssueTrackerConnections.IssueTrackerConnections, issueTrackers),
               ),

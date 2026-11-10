@@ -28,6 +28,7 @@ import {
 } from "@t3tools/issue-tracker-core/server/IssueTracker";
 
 import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
+import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import * as IssueTrackerBindings from "../persistence/IssueTrackerBindings.ts";
 import { normalizeGitRemoteUrl } from "@t3tools/shared/git";
 
@@ -162,6 +163,8 @@ function makeService(input: {
   readonly playbooks?: string;
   /** The T3 home, for a test that edits `userdata/playbooks.json` between reads. */
   readonly baseDir?: string;
+  /** The `issueThreadKey` of each issue with an open thread. */
+  readonly openIssueKeys?: ReadonlyArray<string>;
 }) {
   const enabledBoards = input.enabledBoards ?? new Set<string>();
   return Effect.gen(function* () {
@@ -195,6 +198,9 @@ function makeServiceIn(
                   ]),
                 ),
               ),
+            }),
+            Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
+              listOpen: Effect.succeed(new Set(input.openIssueKeys ?? [])),
             }),
             Layer.mock(IssueBoardSources.IssueBoardSourcesRepository)({
               listEnabled: Effect.sync(() => new Set(enabledBoards)),
@@ -522,10 +528,16 @@ describe("IssueService", () => {
       let viewerReads = 0;
       const service = yield* makeService({
         playbooks: JSON.stringify([
-          { name: "develop", rules: { status: ["Ready", "In progress"], assignee: "me" } },
-          { name: "ship", rules: { status: ["In review"] } },
-          { name: "other" },
+          {
+            name: "develop",
+            rules: { status: ["Ready", "In progress"], assignee: "me" },
+            prompt: "p",
+          },
+          { name: "ship", rules: { status: ["In review"] }, prompt: "p" },
+          { name: "other", prompt: "p" },
         ]),
+        // Keys compare as thread links store them, whatever the board's letter case.
+        openIssueKeys: ["github github.com acme/web 1"],
         projects: [
           // Its origin is acme/web, but the project whose own repository is acme/web wins.
           forkOf("other-fork", "acme/other", "acme/web"),
@@ -585,11 +597,12 @@ describe("IssueService", () => {
           entry.projectId,
           entry.projectTitle,
           entry.playbook,
+          entry.hasOpenThread,
         ]),
       ).toEqual([
-        ["Acme/Web", "1", "web", "web", "develop"],
-        ["acme/api", "2", null, null, "ship"],
-        ["me/app", "3", "app-fork", "app-fork", "other"],
+        ["Acme/Web", "1", "web", "web", "develop", true],
+        ["acme/api", "2", null, null, "ship", false],
+        ["me/app", "3", "app-fork", "app-fork", "other", false],
       ]);
       expect(boards[0]?.entries[0]).toMatchObject({ tracker: "github", host: "github.com" });
       expect(boards[1]).toEqual({
@@ -691,8 +704,8 @@ describe("IssueService", () => {
       expect(
         yield* read(
           JSON.stringify([
-            { name: "develop", rules: { stauts: ["Ready"] } },
-            { name: "other", rules: { status: ["ready"] } },
+            { name: "develop", rules: { stauts: ["Ready"] }, prompt: "p" },
+            { name: "other", rules: { status: ["ready"] }, prompt: "p" },
           ]),
         ),
       ).toEqual({
@@ -702,8 +715,8 @@ describe("IssueService", () => {
       expect(viewerReads).toBe(0);
 
       const assigned = JSON.stringify([
-        { name: "develop", rules: { assignee: "nobody" } },
-        { name: "other" },
+        { name: "develop", rules: { assignee: "nobody" }, prompt: "p" },
+        { name: "other", prompt: "p" },
       ]);
       expect(yield* read(assigned)).toEqual({ playbooks: ["develop"], playbookErrors: [] });
       viewer = Effect.fail(

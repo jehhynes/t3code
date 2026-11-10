@@ -191,7 +191,12 @@ import {
   IssueUnavailableError,
   IssueUpdateInput,
 } from "./issue.ts";
-import { IssueBoardResult, IssueBoardSetEnabledInput } from "./issueBoard.ts";
+import {
+  IssueBoardResult,
+  IssueBoardSetEnabledInput,
+  IssuePlaybookStartInput,
+  IssuePlaybookStartResult,
+} from "./issueBoard.ts";
 import {
   GuestShareCreateError,
   GuestShareCreateInput,
@@ -626,6 +631,7 @@ export const WS_METHODS = {
   issuesList: "issues.list",
   issuesBoard: "issues.board",
   issuesSetBoardEnabled: "issues.setBoardEnabled",
+  issuesStartPlaybook: "issues.startPlaybook",
   issuesDetail: "issues.detail",
   issuesComments: "issues.comments",
   issuesTemplates: "issues.templates",
@@ -1303,6 +1309,12 @@ const WsIssuesBoardRpc = Rpc.make(WS_METHODS.issuesBoard, {
 const WsIssuesSetBoardEnabledRpc = Rpc.make(WS_METHODS.issuesSetBoardEnabled, {
   payload: IssueBoardSetEnabledInput,
   success: Schema.Void,
+  error: IssueRpcError,
+});
+
+const WsIssuesStartPlaybookRpc = Rpc.make(WS_METHODS.issuesStartPlaybook, {
+  payload: IssuePlaybookStartInput,
+  success: IssuePlaybookStartResult,
   error: IssueRpcError,
 });
 
@@ -2220,6 +2232,7 @@ export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesListRpc,
   WsIssuesBoardRpc,
   WsIssuesSetBoardEnabledRpc,
+  WsIssuesStartPlaybookRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
   WsIssuesTemplatesRpc,

@@ -1,8 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { PositiveInt, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { IssueSummary } from "./issue.ts";
+import { ModelSelection } from "./modelSelection.ts";
+import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
 /** A GitHub Projects board read as one issue source, named in `settings.json`. */
 export const GitHubBoardConfig = Schema.Struct({
@@ -36,6 +38,8 @@ export const IssueBoardEntry = Schema.Struct({
   playbook: Schema.NullOr(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  /** Whether a thread linked to the issue is neither settled, archived nor deleted. */
+  hasOpenThread: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 
@@ -61,6 +65,12 @@ export type IssuePlaybookRules = typeof IssuePlaybookRules.Type;
 export const IssuePlaybook = Schema.Struct({
   name: TrimmedNonEmptyString,
   rules: IssuePlaybookRules.pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  /** The started thread's first message; `{{issue.title}}` and the like name the issue's fields. */
+  prompt: TrimmedNonEmptyString,
+  /** Each launch setting left out takes what a new thread in the issue's project would. */
+  modelSelection: Schema.optionalKey(ModelSelection),
+  runtimeMode: Schema.optionalKey(RuntimeMode),
+  interactionMode: Schema.optionalKey(ProviderInteractionMode),
 });
 export type IssuePlaybook = typeof IssuePlaybook.Type;
 
@@ -92,3 +102,13 @@ export const IssueBoardSetEnabledInput = Schema.Struct({
   enabled: Schema.Boolean,
 });
 export type IssueBoardSetEnabledInput = typeof IssueBoardSetEnabledInput.Type;
+
+/** Starts the named playbook's thread for a board issue, as the board listed it. */
+export const IssuePlaybookStartInput = Schema.Struct({
+  playbook: TrimmedNonEmptyString,
+  entry: IssueBoardEntry,
+});
+export type IssuePlaybookStartInput = typeof IssuePlaybookStartInput.Type;
+
+export const IssuePlaybookStartResult = Schema.Struct({ threadId: ThreadId });
+export type IssuePlaybookStartResult = typeof IssuePlaybookStartResult.Type;

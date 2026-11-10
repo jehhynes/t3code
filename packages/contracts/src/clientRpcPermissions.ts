@@ -49,6 +49,8 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.issueTrackersBindProject]: AuthSettingsWriteScope,
   // Which boards the server reads is source configuration, as a tracker binding is.
   [WS_METHODS.issuesSetBoardEnabled]: AuthSettingsWriteScope,
+  // Starts a thread and its first turn, as launching one from the composer does.
+  [WS_METHODS.issuesStartPlaybook]: AuthOrchestrationOperateScope,
   // Writing a guide runs a model on this environment's providers, which reading one does not.
   [WS_METHODS.pullRequestsGenerateReviewGuide]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsCreateFromThread]: AuthOrchestrationOperateScope,

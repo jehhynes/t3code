@@ -41,7 +41,8 @@ Each board gets its own section at the top of the Issues page. Its issues are gr
 T3 Code project for their repository; an issue whose repository has no project is grouped under
 "No T3 Code project for owner/repo" and opens on GitHub instead of beside the list. Each issue
 shows its board status, assignees, labels, the open issues that block it, and the
-[playbook](playbooks.md) that picks it.
+[playbook](playbooks.md) that picks it. Above the boards, the issues a playbook picks that have no
+open thread wait for you to [start](playbooks.md#start-an-issue) them.
 
 The sections hold open issues only, so they hide under **Closed**. The search box narrows them by
 title and number; the involvement and tracker filters do not apply to them.

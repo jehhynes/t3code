@@ -52,11 +52,12 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
 import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
+import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { readBoards } from "./issueBoard.ts";
 import {
   PLAYBOOKS_FILE,
   needsViewer,
-  parsePlaybooks,
+  readPlaybooksFile,
   selectPlaybook,
 } from "./playbookSelection.ts";
 
@@ -210,6 +211,7 @@ const make = Effect.gen(function* () {
   const bindings = yield* IssueTrackerBindings.IssueTrackerBindingsRepository;
   const serverSettings = yield* ServerSettings.ServerSettingsService;
   const boardSources = yield* IssueBoardSources.IssueBoardSourcesRepository;
+  const threadLinks = yield* IssueThreadLinks.IssueThreadLinksRepository;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const config = yield* ServerConfig.ServerConfig;
@@ -476,18 +478,8 @@ const make = Effect.gen(function* () {
       cause,
     });
 
-  // Read on every board call, so an edit applies at the next refresh; a missing file is none.
-  const readPlaybooks = fileSystem.readFileString(playbooksPath).pipe(
-    Effect.map(parsePlaybooks),
-    Effect.catch((error) =>
-      Effect.succeed({
-        playbooks: [],
-        errors:
-          error.reason._tag === "NotFound"
-            ? []
-            : [`${PLAYBOOKS_FILE} could not be read: ${error.message}`],
-      }),
-    ),
+  const readPlaybooks = readPlaybooksFile(playbooksPath).pipe(
+    Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
   const readBoardListing = Effect.gen(function* () {
@@ -519,6 +511,25 @@ const make = Effect.gen(function* () {
     const listing = yield* readBoardListing;
     const { playbooks, errors } = yield* readPlaybooks;
     const hasEntries = listing.boards.some((candidate) => candidate.entries.length > 0);
+    const open = hasEntries
+      ? yield* threadLinks.listOpen.pipe(
+          Effect.mapError(
+            (cause) =>
+              new IssueOperationError({
+                operation: "board",
+                detail: "Which issues have an open thread could not be read.",
+                cause,
+              }),
+          ),
+        )
+      : new Set<string>();
+    const boards = listing.boards.map((candidate) => ({
+      ...candidate,
+      entries: candidate.entries.map((entry) => ({
+        ...entry,
+        hasOpenThread: open.has(IssueThreadLinks.issueThreadKey(entry)),
+      })),
+    }));
     let viewer: string | null = null;
     if (hasEntries && needsViewer(playbooks)) {
       const api = registry.get(GITHUB);
@@ -533,7 +544,7 @@ const make = Effect.gen(function* () {
         // An assignee rule cannot decide, and skipping only those playbooks would hand their
         // issues to later ones.
         return {
-          boards: listing.boards,
+          boards,
           playbookErrors: [
             ...errors,
             `Your GitHub account could not be read, so no playbook applies: ${viewerRead.failure}`,
@@ -543,7 +554,7 @@ const make = Effect.gen(function* () {
       viewer = viewerRead.success;
     }
     return {
-      boards: listing.boards.map((candidate) => ({
+      boards: boards.map((candidate) => ({
         ...candidate,
         entries: candidate.entries.map((entry) => ({
           ...entry,

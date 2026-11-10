@@ -27,12 +27,13 @@ function entry(overrides: Partial<IssueBoardEntry> = {}): IssueBoardEntry {
     projectId: null,
     projectTitle: null,
     playbook: null,
+    hasOpenThread: false,
     ...overrides,
   };
 }
 
 const matches = (rules: IssuePlaybookRules, issue: IssueBoardEntry, viewer: string | null = "me") =>
-  selectPlaybook([{ name: "it", rules }], issue, viewer) === "it";
+  selectPlaybook([{ name: "it", rules, prompt: "Work on it." }], issue, viewer) === "it";
 
 describe("selectPlaybook", () => {
   const meAlone = entry({ assignees: [person("Me")] });
@@ -98,9 +99,13 @@ describe("selectPlaybook", () => {
   it("gives each issue the first playbook that matches, or none", () => {
     const { playbooks } = parsePlaybooks(
       JSON.stringify([
-        { name: "develop", rules: { status: ["Ready", "In progress"], assignee: "me" } },
-        { name: "ship", rules: { status: ["In review"] } },
-        { name: "other" },
+        {
+          name: "develop",
+          rules: { status: ["Ready", "In progress"], assignee: "me" },
+          prompt: "Develop.",
+        },
+        { name: "ship", rules: { status: ["In review"] }, prompt: "Ship." },
+        { name: "other", prompt: "Other." },
       ]),
     );
     const pick = (issue: IssueBoardEntry) => selectPlaybook(playbooks, issue, "me");
@@ -117,24 +122,43 @@ describe("parsePlaybooks", () => {
     expect(
       parsePlaybooks(
         JSON.stringify([
-          { name: "develop", rules: { assignee: "mine" } },
-          { name: " ship ", rules: { status: ["In review"] } },
-          { name: "Ship" },
-          { rules: {} },
-          { name: "extra", launch: true },
-          { name: "other" },
+          { name: "develop", rules: { assignee: "mine" }, prompt: "p" },
+          { name: " ship ", rules: { status: ["In review"] }, prompt: "Ship {{ issue.url }}." },
+          { name: "Ship", prompt: "p" },
+          { rules: {}, prompt: "p" },
+          { name: "extra", launch: true, prompt: "p" },
+          { name: "unprompted" },
+          { name: "typo", prompt: "Fix {{issue.titel}} in {{issue.repository}}." },
+          { name: "mode", prompt: "p", runtimeMode: "yolo" },
+          {
+            name: "other",
+            prompt: "Look at {{issue.title}}.",
+            modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+            runtimeMode: "approval-required",
+            interactionMode: "plan",
+          },
         ]),
       ),
     ).toEqual({
       playbooks: [
-        { name: "ship", rules: { status: ["In review"] } },
-        { name: "other", rules: {} },
+        { name: "ship", rules: { status: ["In review"] }, prompt: "Ship {{ issue.url }}." },
+        {
+          name: "other",
+          rules: {},
+          prompt: "Look at {{issue.title}}.",
+          modelSelection: { instanceId: "codex", model: "gpt-5.4" },
+          runtimeMode: "approval-required",
+          interactionMode: "plan",
+        },
       ],
       errors: [
         'Playbook 1 (develop): Expected "me" | "meAlone" | "meAndOthers" | "othersOnly" | "nobody" at rules.assignee',
         "Playbook 3 (Ship): an earlier playbook has this name.",
         "Playbook 4: Missing key at name",
         "Playbook 5 (extra): Expected no excess property at launch",
+        "Playbook 6 (unprompted): Missing key at prompt",
+        "Playbook 7 (typo): the prompt names {{issue.titel}}, which no issue has; use {{issue.number}}, {{issue.title}}, {{issue.url}}, {{issue.repository}}, {{issue.status}}, {{issue.labels}}, {{issue.assignees}}.",
+        'Playbook 8 (mode): Expected "approval-required" | "auto-accept-edits" | "auto" | "full-access" at runtimeMode',
       ],
     });
   });

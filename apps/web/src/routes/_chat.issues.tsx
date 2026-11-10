@@ -35,6 +35,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { IssueCreateDialog, type IssueCreateScope } from "~/components/issue/IssueCreateDialog";
 import { IssueBoardSection, boardEntryKey } from "~/components/issue/IssueBoardSection";
+import { IssueStartList } from "~/components/issue/IssueStartList";
 import { IssueDetailPanel } from "~/components/issue/IssueDetailPanel";
 import {
   IssueRow,
@@ -539,36 +540,45 @@ function IssuesRoute() {
   // Boards hold open issues only, and their read has no involvement or tracker filter.
   const boardSections: ReactNode =
     issuesSupported && search.status !== "closed"
-      ? boards.answers.flatMap(([environmentId, answer]) => [
-          ...answer.playbookErrors.map((error) => (
-            <p
-              key={`${environmentId}:playbooks:${error}`}
-              className="px-3 text-sm text-destructive"
-            >
-              {capableEnvironments.length > 1 && environmentLabels.has(environmentId)
-                ? `${environmentLabels.get(environmentId)}: `
-                : null}
-              {error}
-            </p>
-          )),
-          ...answer.boards.map((board) => (
-            <IssueBoardSection
-              key={`${environmentId}:${board.owner}/${board.number}`}
-              environmentId={environmentId}
-              board={board}
-              query={debouncedQuery}
-              {...(capableEnvironments.length > 1 && environmentLabels.has(environmentId)
-                ? { environmentLabel: environmentLabels.get(environmentId) }
-                : {})}
-              selectedKey={
-                selectedIssue?.environmentId === environmentId
-                  ? boardEntryKey({ ...selectedIssue, host: selectedIssue.host ?? "" })
-                  : null
-              }
-              onSelect={selectEntry}
-            />
-          )),
-        ])
+      ? [
+          <IssueStartList
+            key="waiting"
+            answers={boards.answers}
+            query={debouncedQuery}
+            boardsPending={boards.isPending}
+            environmentLabels={capableEnvironments.length > 1 ? environmentLabels : null}
+          />,
+          ...boards.answers.flatMap(([environmentId, answer]) => [
+            ...answer.playbookErrors.map((error) => (
+              <p
+                key={`${environmentId}:playbooks:${error}`}
+                className="px-3 text-sm text-destructive"
+              >
+                {capableEnvironments.length > 1 && environmentLabels.has(environmentId)
+                  ? `${environmentLabels.get(environmentId)}: `
+                  : null}
+                {error}
+              </p>
+            )),
+            ...answer.boards.map((board) => (
+              <IssueBoardSection
+                key={`${environmentId}:${board.owner}/${board.number}`}
+                environmentId={environmentId}
+                board={board}
+                query={debouncedQuery}
+                {...(capableEnvironments.length > 1 && environmentLabels.has(environmentId)
+                  ? { environmentLabel: environmentLabels.get(environmentId) }
+                  : {})}
+                selectedKey={
+                  selectedIssue?.environmentId === environmentId
+                    ? boardEntryKey({ ...selectedIssue, host: selectedIssue.host ?? "" })
+                    : null
+                }
+                onSelect={selectEntry}
+              />
+            )),
+          ]),
+        ]
       : null;
 
   const listBody: ReactNode = !issuesSupported ? (

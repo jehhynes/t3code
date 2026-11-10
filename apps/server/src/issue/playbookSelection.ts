@@ -1,8 +1,12 @@
 // Fork-only: rules pick each board issue's playbook (jehhynes/t3code#5).
 import { IssuePlaybook, type IssueBoardEntry } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
+
+import { PLAYBOOK_PROMPT_FIELDS, unknownPromptFields } from "./playbookPrompt.ts";
 
 export const PLAYBOOKS_FILE = "playbooks.json";
 
@@ -53,6 +57,13 @@ export function parsePlaybooks(text: string): ParsedPlaybooks {
       continue;
     }
     const playbook = decoded.value;
+    const unknown = unknownPromptFields(playbook.prompt);
+    if (unknown.length > 0) {
+      errors.push(
+        `${label} (${playbook.name}): the prompt names ${unknown.map((field) => `{{${field}}}`).join(", ")}, which no issue has; use ${PLAYBOOK_PROMPT_FIELDS.map((field) => `{{${field}}}`).join(", ")}.`,
+      );
+      continue;
+    }
     const key = playbook.name.toLowerCase();
     if (names.has(key)) {
       errors.push(`${label} (${playbook.name}): an earlier playbook has this name.`);
@@ -63,6 +74,22 @@ export function parsePlaybooks(text: string): ParsedPlaybooks {
   }
   return { playbooks, errors };
 }
+
+/** Read whenever asked, so an edit applies at once; a missing file is no playbooks. */
+export const readPlaybooksFile = (path: string) =>
+  FileSystem.FileSystem.pipe(
+    Effect.flatMap((fileSystem) => fileSystem.readFileString(path)),
+    Effect.map(parsePlaybooks),
+    Effect.catch((error) =>
+      Effect.succeed<ParsedPlaybooks>({
+        playbooks: [],
+        errors:
+          error.reason._tag === "NotFound"
+            ? []
+            : [`${PLAYBOOKS_FILE} could not be read: ${error.message}`],
+      }),
+    ),
+  );
 
 export function needsViewer(playbooks: ReadonlyArray<IssuePlaybook>): boolean {
   return playbooks.some((playbook) => playbook.rules.assignee !== undefined);

@@ -65,7 +65,7 @@ function groupBoard(entries: ReadonlyArray<IssueBoardEntry>): ReadonlyArray<Boar
     }));
 }
 
-function BoardRowLines({ entry }: { entry: IssueBoardEntry }) {
+export function BoardRowLines({ entry }: { entry: IssueBoardEntry }) {
   return (
     <>
       <IssueStateGlyph state={entry.state} />

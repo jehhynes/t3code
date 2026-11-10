@@ -114,6 +114,14 @@ export function createIssueEnvironmentAtoms<R, E>(
       onSettled: ({ environmentId }, registry) =>
         Effect.sync(() => registry.refresh(board({ environmentId, input: {} }))),
     }),
+    /** Starts a playbook's thread for a board issue, then reads the boards again. */
+    startPlaybook: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:start-playbook",
+      tag: WS_METHODS.issuesStartPlaybook,
+      scheduler: commandScheduler,
+      onSettled: ({ environmentId }, registry) =>
+        Effect.sync(() => registry.refresh(board({ environmentId, input: {} }))),
+    }),
     /**
      * A continuation of the listing, run as a command rather than read as a query: a page is
      * asked for once and laid over the rows held, and a refresh of the first page forgets it.
