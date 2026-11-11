@@ -47,7 +47,8 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
-import { makeIssueWorkspace } from "./issueWorktree.ts";
+import { issueWorktreeConfig, makeIssueWorkspace } from "./issueWorktree.ts";
+import * as IssueWorktrees from "./IssueWorktrees.ts";
 import { entryWaitingIn } from "./playbookEntries.ts";
 import { renderPlaybookPrompt } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
@@ -148,6 +149,7 @@ const make = Effect.gen(function* () {
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
   const issueWorkspace = yield* makeIssueWorkspace;
+  const issueWorktrees = yield* IssueWorktrees.IssueWorktrees;
 
   const fail = (detail: string, cause?: unknown) =>
     new IssueOperationError({
@@ -320,17 +322,22 @@ const make = Effect.gen(function* () {
         `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
       );
     }
-    const workspaceStrategy = yield* issueWorkspace({
-      issueKey: IssueThreadLinks.issueThreadKey(entry),
-      project,
-      requiresWorktree: playbook.requiresWorktree === true,
-      startFromOrigin: settings.newWorktreesStartFromOrigin,
-    }).pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
+    const worktreeConfig = issueWorktreeConfig(settings, entry.scope);
+    const workspaceStrategy = yield* issueWorkspace
+      .strategy({
+        issueKey: IssueThreadLinks.issueThreadKey(entry),
+        project,
+        requiresWorktree: playbook.requiresWorktree === true,
+        startFromOrigin: settings.newWorktreesStartFromOrigin,
+        baseBranch: worktreeConfig.baseBranch,
+      })
+      .pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
     return {
       modelSelection,
       runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
       interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
       workspaceStrategy,
+      worktreeConfig,
     };
   });
 
@@ -374,8 +381,21 @@ const make = Effect.gen(function* () {
       return { threadId: thread.threadId };
     }
 
-    const { modelSelection, runtimeMode, interactionMode, workspaceStrategy } =
-      yield* launchSettings(playbook, entry, project);
+    const settings = yield* launchSettings(playbook, entry, project);
+    const { modelSelection, runtimeMode, interactionMode } = settings;
+    // The issue's new worktree takes the project's names, checked before anything is made.
+    const workspaceStrategy =
+      settings.workspaceStrategy.type === "worktree"
+        ? {
+            ...settings.workspaceStrategy,
+            ...(yield* issueWorkspace
+              .names({ entry, project, config: settings.worktreeConfig })
+              .pipe(Effect.mapError((cause) => fail(cause.detail, cause)))),
+          }
+        : settings.workspaceStrategy;
+    yield* launches
+      .checkWorktreeBase({ projectId: project.id, workspaceStrategy })
+      .pipe(Effect.mapError((cause) => fail(cause.message, cause)));
 
     const { threadId } = yield* launches
       .launch({
@@ -574,6 +594,40 @@ const make = Effect.gen(function* () {
       input,
       earlier: new Set(messages.map((message) => message.id)),
     });
+    // Worked out when the draft is sent, so the names are free then.
+    const entry = input.entry;
+    yield* issueWorktrees.recordDraft(input.threadId, (launch) =>
+      Effect.gen(function* () {
+        const project = yield* projectOf(entry).pipe(
+          Effect.mapError(
+            (cause) => new IssueWorktrees.IssueWorktreeError({ detail: cause.detail }),
+          ),
+        );
+        const settings = yield* serverSettings.getSettings.pipe(
+          Effect.mapError(
+            (cause) =>
+              new IssueWorktrees.IssueWorktreeError({
+                detail: "The server settings could not be read.",
+                cause,
+              }),
+          ),
+        );
+        const named = yield* issueWorkspace.names({
+          entry,
+          project,
+          config: issueWorktreeConfig(settings, entry.scope),
+        });
+        // The draft's own base, which I may have changed in the draft, as Start checks its base.
+        yield* launches
+          .checkWorktreeBase(launch)
+          .pipe(
+            Effect.mapError(
+              (cause) => new IssueWorktrees.IssueWorktreeError({ detail: cause.message, cause }),
+            ),
+          );
+        return named;
+      }),
+    );
   });
 
   /** Claims the entry as Start would; a thread sent after another start stays an ordinary thread. */
@@ -618,6 +672,7 @@ const make = Effect.gen(function* () {
       const pending = startsOnSend.get(event.threadId);
       if (pending === undefined || pending.earlier.has(event.payload.id)) return;
       startsOnSend.delete(event.threadId);
+      yield* issueWorktrees.forgetDraft(event.threadId);
       yield* worker.enqueue(pending.input);
     },
   );

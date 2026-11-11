@@ -6,11 +6,13 @@ import {
   IssueTrackerKind,
   MessageId,
   ProjectId,
+  ProviderInstanceId,
   RunId,
   ThreadId,
   type IssueBoardEntry,
   type IssueBoardResult,
   type IssueOperationError,
+  type IssueWorktreeConfig,
   type IssuePlaybookStartResult,
   type OrchestrationV2ConversationMessage,
   type OrchestrationV2DomainEvent,
@@ -23,6 +25,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
+import type { PlatformError } from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
@@ -42,10 +45,12 @@ import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as IssueService from "./IssueService.ts";
+import * as IssueWorktrees from "./IssueWorktrees.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
 
 const projectId = ProjectId.make("web");
@@ -123,6 +128,13 @@ interface Options {
   readonly threadMessages?: ReadonlyArray<MessageId>;
   /** A thread whose messages are read: one not created yet, or a read that fails. */
   readonly threadRead?: "missing" | "fails";
+  /** The project's `issueWorktrees` entry; none when left out. */
+  readonly worktrees?: IssueWorktreeConfig;
+  /** The project's folder; `/projects/web` when left out. */
+  readonly workspaceRoot?: string;
+  /** The project's local branches. */
+  readonly branches?: ReadonlyArray<string>;
+  readonly checkBase?: ThreadLaunchService.ThreadLaunchService["Service"]["checkWorktreeBase"];
 }
 
 const issueKey = "github github.com acme/web 6";
@@ -146,6 +158,7 @@ function harness<A, E>(
       playbook: string,
     ) => Effect.Effect<Result.Result<IssuePlaybookStartResult, IssueOperationError>>;
     readonly service: PlaybookStartService.PlaybookStartService["Service"];
+    readonly worktrees: IssueWorktrees.IssueWorktrees["Service"];
     readonly launched: ReadonlyArray<ThreadLaunchService.ThreadLaunchInput>;
     readonly linked: ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>;
     readonly sent: ReadonlyArray<ThreadManagement.ThreadManagementSendInput>;
@@ -204,6 +217,7 @@ function harness<A, E>(
             .start({ playbook, entry: input.entry ?? entry }, { auto: input.auto === true })
             .pipe(Effect.result),
         service,
+        worktrees: yield* IssueWorktrees.IssueWorktrees,
         launched,
         linked,
         sent,
@@ -219,23 +233,42 @@ function harness<A, E>(
               ServerConfig.layerTest(process.cwd(), baseDir).pipe(
                 Layer.provideMerge(NodeServices.layer),
               ),
-              ServerSettings.ServerSettingsService.layerTest({
-                defaultModelSelection: { instanceId: "claudeAgent", model: "claude-opus-5-5" },
-                defaultRuntimeMode: "full-access",
-                // The project's own defaults win over the environment's.
-                projectSettingsOverrides: {
-                  [projectId]: {
-                    defaultModelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
-                    defaultRuntimeMode: "auto-accept-edits",
-                    newWorktreesStartFromOrigin: false,
-                  },
-                },
-              }),
+              IssueWorktrees.layer.pipe(
+                Layer.provide(NodeServices.layer),
+                Layer.provide(
+                  Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
+                    resolve: () =>
+                      Effect.succeed({ canonicalKey: "github.com/acme/web", locator: {} as never }),
+                  }),
+                ),
+                Layer.provideMerge(
+                  ServerSettings.ServerSettingsService.layerTest({
+                    issueWorktrees:
+                      input.worktrees === undefined ? {} : { "Acme/Web": input.worktrees },
+                    defaultModelSelection: { instanceId: "claudeAgent", model: "claude-opus-5-5" },
+                    defaultRuntimeMode: "full-access",
+                    // The project's own defaults win over the environment's.
+                    projectSettingsOverrides: {
+                      [projectId]: {
+                        defaultModelSelection: {
+                          instanceId: "claudeAgent",
+                          model: "claude-haiku-4-5",
+                        },
+                        defaultRuntimeMode: "auto-accept-edits",
+                        newWorktreesStartFromOrigin: false,
+                      },
+                    },
+                  }),
+                ),
+              ),
               Layer.mock(ProjectService.ProjectService)({
                 getById: (id) =>
                   Effect.succeed(
                     id === projectId
-                      ? Option.some({ id, workspaceRoot: "/projects/web" } as unknown as Project)
+                      ? Option.some({
+                          id,
+                          workspaceRoot: input.workspaceRoot ?? "/projects/web",
+                        } as unknown as Project)
                       : Option.none(),
                   ),
               }),
@@ -244,15 +277,20 @@ function harness<A, E>(
                 resolvePrimaryRemoteName: () => Effect.succeed("origin"),
                 resolveDefaultBranchName: () => Effect.succeed("trunk"),
                 resolveCommit: ({ revision }) =>
-                  revision === "refs/remotes/origin/trunk"
+                  revision === "refs/remotes/origin/trunk" ||
+                  (input.branches ?? []).some((branch) => revision === `refs/heads/${branch}`)
                     ? Effect.succeed({ commitSha: "abc" } as never)
                     : Effect.fail(new Error("unknown revision") as never),
+                // Git refuses a `.lock` ref, which a safe slug can still end in.
+                execute: ({ args }) =>
+                  Effect.succeed({ exitCode: args.at(-1)?.endsWith(".lock") ? 1 : 0 } as never),
                 listWorktreePaths: () =>
                   input.listedWorktrees === "fails"
                     ? Effect.fail(new Error("git worktree list failed") as never)
                     : Effect.succeed([...(input.listedWorktrees ?? [])]),
               }),
               Layer.mock(ThreadLaunchService.ThreadLaunchService)({
+                checkWorktreeBase: (check) => input.checkBase?.(check) ?? Effect.void,
                 launch: (launch) =>
                   Effect.suspend(() => {
                     launched.push(launch);
@@ -568,6 +606,174 @@ describe("PlaybookStartService.start", () => {
           startFromOrigin: false,
         });
       }),
+  );
+
+  const jessy = {
+    branch: "{{issue.type}}/{{issue.number}}-{{issue.slug}}",
+    folder: "../web.worktrees/{{issue.number}}-{{issue.slug}}",
+    baseBranch: "switchboard",
+  };
+  /** Starts the issue in a real project folder, so the folder checks read a real filesystem. */
+  const startNamed = (
+    input: Omit<Options, "workspaceRoot"> & {
+      readonly prepare?: (dir: string) => Effect.Effect<void, PlatformError, FileSystem.FileSystem>;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* fs.realPath(
+        yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-names-" }),
+      );
+      yield* fs.makeDirectory(`${dir}/web`);
+      yield* fs.makeDirectory(`${dir}/web.worktrees`);
+      if (input.prepare !== undefined) yield* input.prepare(dir).pipe(Effect.orDie);
+      const started = yield* start({
+        playbook: "isolated",
+        waitingWith: "isolated",
+        ...input,
+        workspaceRoot: `${dir}/web`,
+      });
+      return { ...started, dir };
+    }).pipe(Effect.provide(NodeServices.layer));
+
+  it.effect.each([
+    {
+      name: "all three",
+      worktrees: jessy,
+      labels: ["bug"],
+      strategy: (dir: string) => ({
+        type: "worktree",
+        baseRef: "switchboard",
+        startFromOrigin: false,
+        branch: "fix/6-start-a-thread",
+        worktreePath: `${dir}/web.worktrees/6-start-a-thread`,
+      }),
+    },
+    {
+      name: "only the branch, with the project's own label map",
+      worktrees: { branch: jessy.branch, types: { documentation: "docs" } },
+      labels: ["bug", "documentation"],
+      strategy: () => ({
+        type: "worktree",
+        baseRef: "origin/trunk",
+        startFromOrigin: false,
+        branch: "docs/6-start-a-thread",
+      }),
+    },
+    {
+      name: "only the folder",
+      worktrees: { folder: jessy.folder },
+      labels: [],
+      strategy: (dir: string) => ({
+        type: "worktree",
+        baseRef: "origin/trunk",
+        startFromOrigin: false,
+        worktreePath: `${dir}/web.worktrees/6-start-a-thread`,
+      }),
+    },
+    {
+      name: "only the base branch",
+      worktrees: { baseBranch: "switchboard" },
+      labels: [],
+      strategy: () => ({ type: "worktree", baseRef: "switchboard", startFromOrigin: false }),
+    },
+  ])("launches the issue's new worktree with the project's names: $name", (input) =>
+    Effect.gen(function* () {
+      const { result, launched, dir } = yield* startNamed({
+        worktrees: input.worktrees,
+        entry: {
+          ...entry,
+          labels: input.labels.map((name) => ({ name, color: null })),
+        },
+      });
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(launched[0]?.workspaceStrategy).toEqual(input.strategy(dir));
+    }),
+  );
+
+  it.effect.each([
+    {
+      name: "a branch that already exists",
+      input: { worktrees: jessy, branches: ["feat/6-start-a-thread"] },
+      detail: "The branch feat/6-start-a-thread already exists.",
+    },
+    {
+      name: "a folder that already exists",
+      input: {
+        worktrees: jessy,
+        prepare: (dir: string) =>
+          FileSystem.FileSystem.use((fs) =>
+            fs.makeDirectory(`${dir}/web.worktrees/6-start-a-thread`),
+          ),
+      },
+      detail: "already exists.",
+    },
+    {
+      name: "a symlink at the folder",
+      input: {
+        worktrees: jessy,
+        prepare: (dir: string) =>
+          FileSystem.FileSystem.use((fs) =>
+            fs.symlink(`${dir}/elsewhere`, `${dir}/web.worktrees/6-start-a-thread`),
+          ),
+      },
+      detail: "already exists.",
+    },
+    {
+      name: "a branch name that looks temporary",
+      input: { worktrees: { branch: "t3/0000000{{issue.number}}" } },
+      detail: `The branch name "t3/00000006" looks like T3 Code's temporary names.`,
+    },
+    {
+      name: "a branch name git refuses",
+      input: { worktrees: { branch: "{{issue.slug}}.lock" } },
+      detail: `Git does not accept "start-a-thread.lock" as a branch name.`,
+    },
+    {
+      name: "a field in a folder's parent",
+      input: { worktrees: { folder: "../{{issue.slug}}/x" } },
+      detail: `The folder "../{{issue.slug}}/x" may name issue fields only in its last part.`,
+    },
+    {
+      name: "a base branch that does not resolve",
+      input: {
+        worktrees: jessy,
+        checkBase: () =>
+          Effect.fail(
+            new ThreadLaunchService.ThreadLaunchBaseRefError({
+              projectId,
+              projectTitle: "web",
+              workspaceRoot: "/projects/web",
+              baseRef: "switchboard",
+            }),
+          ),
+      },
+      detail: `Base ref "switchboard" does not resolve`,
+    },
+  ])(
+    "refuses $name before anything is made, and the issue waits with the cause",
+    ({ input, detail }) =>
+      Effect.gen(function* () {
+        const { result, launched, stored } = yield* startNamed(input);
+        expect(result._tag).toBe("Failure");
+        expect(result._tag === "Failure" && result.failure.detail).toContain(detail);
+        expect(launched).toEqual([]);
+        expect(stored?.startedBy).toBeNull();
+        expect(stored?.startFailure).toContain(detail);
+      }),
+  );
+
+  it.effect("names a title that tries to leave the folder inside it", () =>
+    Effect.gen(function* () {
+      const { launched, dir } = yield* startNamed({
+        worktrees: jessy,
+        entry: { ...entry, title: "../../x; rm -rf ~ `id` $(id) Ünïcödé/\\..\0" },
+      });
+      expect(launched[0]?.workspaceStrategy).toMatchObject({
+        branch: "feat/6-x-rm-rf-id-id-unicode",
+        worktreePath: `${dir}/web.worktrees/6-x-rm-rf-id-id-unicode`,
+      });
+    }),
   );
 
   it.effect.each(["isolated", "plain"])(
@@ -968,6 +1174,12 @@ describe("PlaybookStartService.prepareDraft", () => {
       },
     },
     {
+      name: "the project's base branch for a new worktree",
+      input: { playbook: "isolated", worktrees: { baseBranch: "switchboard", branch: "x" } },
+      prompt: "Fix https://github.com/acme/web/issues/6.",
+      draft: { workspace: { type: "worktree", baseRef: "switchboard", startFromOrigin: false } },
+    },
+    {
       name: "the worktree the issue already has",
       input: { playbook: "plain", issueWorktree, listedWorktrees: [issueWorktree.worktreePath] },
       prompt: "Look at https://github.com/acme/web/issues/6.",
@@ -1127,6 +1339,81 @@ describe("PlaybookStartService.startOnSend", () => {
       expect(sends).toEqual([]);
       expect(refreshed()).toBe(1);
     }),
+  );
+
+  it.effect(
+    "names the draft's new worktree when it is sent, from the project's settings then",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dir = yield* fs.realPath(
+          yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-draft-names-" }),
+        );
+        yield* fs.makeDirectory(`${dir}/web`);
+        const launchOf = (
+          workspaceStrategy: ThreadLaunchService.ThreadLaunchWorkspaceStrategy,
+        ) => ({
+          commandId: CommandId.make("draft-launch"),
+          threadId: draftThreadId,
+          projectId,
+          title: "#6 Start a thread",
+          modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4-mini" },
+          runtimeMode: "approval-required" as const,
+          interactionMode: "default" as const,
+          workspaceStrategy,
+          createdBy: "user" as const,
+          creationSource: "web" as const,
+        });
+        let baseResolves = false;
+        const { named, taken, unresolved } = yield* harness(
+          {
+            workspaceRoot: `${dir}/web`,
+            checkBase: ({ workspaceStrategy }) =>
+              baseResolves
+                ? Effect.void
+                : Effect.fail(
+                    new ThreadLaunchService.ThreadLaunchBaseRefError({
+                      projectId,
+                      projectTitle: "web",
+                      workspaceRoot: `${dir}/web`,
+                      baseRef:
+                        workspaceStrategy.type === "worktree" ? workspaceStrategy.baseRef : "",
+                    }),
+                  ),
+            worktrees: {
+              branch: "{{issue.type}}/{{issue.number}}-{{issue.slug}}",
+              folder: "../web.worktrees/{{issue.number}}-{{issue.slug}}",
+            },
+          },
+          ({ service, worktrees }) =>
+            Effect.gen(function* () {
+              yield* service.startOnSend({ playbook: "develop", entry, threadId: draftThreadId });
+              // The base I picked in the draft is checked as Start checks its own.
+              const unresolved = yield* worktrees
+                .nameDraft(launchOf({ type: "worktree", baseRef: "gone" }))
+                .pipe(Effect.flip);
+              baseResolves = true;
+              // A folder taken after the draft opened fails its send.
+              yield* fs.makeDirectory(`${dir}/web.worktrees/6-start-a-thread`, { recursive: true });
+              const taken = yield* worktrees
+                .nameDraft(launchOf({ type: "worktree", baseRef: "trunk" }))
+                .pipe(Effect.flip);
+              yield* fs.remove(`${dir}/web.worktrees/6-start-a-thread`, { recursive: true });
+              const named = yield* worktrees.nameDraft(
+                launchOf({ type: "worktree", baseRef: "trunk" }),
+              );
+              return { named, taken, unresolved };
+            }),
+        );
+        expect(unresolved.detail).toContain(`Base ref "gone" does not resolve`);
+        expect(taken.detail).toContain("already exists.");
+        expect(named.workspaceStrategy).toEqual({
+          type: "worktree",
+          baseRef: "trunk",
+          branch: "feat/6-start-a-thread",
+          worktreePath: `${dir}/web.worktrees/6-start-a-thread`,
+        });
+      }).pipe(Effect.provide(NodeServices.layer)),
   );
 
   it.effect.each([

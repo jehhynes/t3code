@@ -183,8 +183,8 @@ When the issue has no worktree:
 
 - A playbook with `"requiresWorktree": true` starts its thread in a new worktree, as T3 Code makes
   one for any new thread in a worktree: from the project's default branch, with the project's
-  worktree settings (where worktrees go, branch naming, starting from origin) and its setup script.
-  That worktree is then the issue's.
+  worktree settings (where worktrees go, branch naming, starting from origin) and its setup script,
+  except where [the project names it](#name-an-issues-worktree). That worktree is then the issue's.
 - Any other playbook starts its thread in the project's own folder.
 
 A prompt sent to the issue's open thread runs in that thread's own folder. A draft from Start with guidance opens in
@@ -197,6 +197,54 @@ than adding a second one. A setup script that fails shows in the thread's setup 
 Code waits for it, it also fails the run, and Retry reuses the thread's worktree. When T3 Code
 cannot tell whether the issue's worktree is still there, the start fails before any thread exists
 and the issue waits with the cause and Retry.
+
+### Name an issue's worktree
+
+A project can give the new worktree of each of its issues a branch name, a folder and a base branch
+of its own, under `issueWorktrees` in `settings.json`, keyed by the issue's repository:
+
+```json
+"issueWorktrees": {
+  "acme/web": {
+    "branch": "{{issue.type}}/{{issue.number}}-{{issue.slug}}",
+    "folder": "../web.worktrees/{{issue.number}}-{{issue.slug}}",
+    "baseBranch": "main"
+  }
+}
+```
+
+With these, issue 123 "Fix the login page" with the label `bug` gets the branch
+`fix/123-fix-the-login-page` in `<project's parent>/web.worktrees/123-fix-the-login-page`, from
+`main`. Each of the three is optional; one you leave out keeps T3 Code's own behavior for it.
+They apply to Start, a start by the playbook itself and a draft from Start with guidance, and only
+to a new worktree: an issue that already has one keeps it.
+
+- `branch` takes the place of T3 Code's own branch naming (**Settings → Worktrees → Worktree branch
+  naming**), which names a new worktree from its first message; the branch keeps this name after
+  the first message.
+- `folder` takes the place of **Settings → Worktrees → Worktree location** for the issue's worktree.
+  It is an absolute path, `~/…`, or relative to the project's folder, and the issue's fields may
+  appear only in its last part. The folder must not exist yet.
+- `baseBranch` takes the place of the project's default branch. Any ref git accepts works, such as
+  `switchboard` or `origin/switchboard`; the project's `newWorktreesStartFromOrigin` still applies to it. A
+  base you pick in a draft wins.
+- `types` sets `{{issue.type}}`: a map from a label to a type, such as
+  `{ "bug": "fix", "documentation": "docs" }`. The issue's first label that the map names gives the
+  type, otherwise `feat`. Without a map, `bug` gives `fix`.
+
+`{{issue.number}}` is the issue's number, and `{{issue.slug}}` is its title in lowercase letters,
+digits and hyphens, at most 40 characters, so a title cannot move the worktree elsewhere or make a
+bad branch name.
+
+A start fails with its cause and makes nothing when the branch already exists, the folder already
+exists, the name is one git refuses or one that looks like T3 Code's temporary `t3/…` names, or the
+base branch does not resolve. For a draft, these are checked when you send it.
+
+A worktree outside T3 Code's worktrees folder works as any other: diffs, checkpoints, its thread's
+worktree controls and reuse by the issue's later threads. Two things differ: T3 Code does not
+recreate it when its folder goes missing, and automatic cleanup (**Settings → Worktrees → Cleanup**)
+leaves it alone, so with **Delete worktrees with deleted threads** on, deleting its thread leaves
+the worktree; with it off, Delete offers to remove it as usual.
 
 ## Start by itself
 

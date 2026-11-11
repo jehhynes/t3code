@@ -51,6 +51,7 @@ import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issue/IssueService.ts";
 import * as PlaybookAutoStart from "./issue/PlaybookAutoStart.ts";
 import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
+import * as IssueWorktrees from "./issue/IssueWorktrees.ts"; // Fork-only (jehhynes/t3code#44)
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueBoardSources from "./persistence/IssueBoardSources.ts";
 import * as IssuePlaybookEntries from "./persistence/IssuePlaybookEntries.ts";
@@ -453,6 +454,8 @@ const layerThreadIssueService = ThreadIssueService.layer.pipe(Layer.provide(laye
 // One instance, shared with the board timer, so Start and the timer see the same board reads.
 const layerPlaybookStartService = PlaybookStartService.layer.pipe(
   Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
+  // Fork-only (jehhynes/t3code#44): the same instance ThreadLaunchService reads drafts from.
+  Layer.provide(IssueWorktrees.layer),
   // Receipts tell a failed start whether its thread or prompt exists (jehhynes/t3code#23).
   Layer.provide(
     CommandReceiptStore.layerFromApplicationReceipts.pipe(
