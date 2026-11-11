@@ -19,6 +19,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FiberSet from "effect/FiberSet";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import * as Semaphore from "effect/Semaphore";
@@ -26,6 +27,7 @@ import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as GitManager from "../git/GitManager.ts";
+import * as IssueLeaveSettlement from "../issue/IssueLeaveSettlement.ts"; // Fork-only (jehhynes/t3code#57)
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -200,6 +202,8 @@ export function resolveAutoSettlementAt(input: {
   readonly autoSettleAfterDays: number | null;
   readonly autoSettleOnMerge: boolean;
   readonly autoSettleKeepPullRequests?: boolean;
+  /** Fork-only (jehhynes/t3code#57): the thread's issue left every playbook's selection. */
+  readonly issueLeft?: boolean;
 }): DateTime.Utc | null {
   const { thread } = input;
   let pullRequest = input.pullRequest;
@@ -224,6 +228,10 @@ export function resolveAutoSettlementAt(input: {
           };
   }
   if (!isAutoSettlementCandidate(thread, input.nowMs)) return null;
+  // Fork-only (jehhynes/t3code#57): a leave settles while any automatic rule is on.
+  if (input.issueLeft === true && (input.autoSettleOnMerge || input.autoSettleAfterDays !== null)) {
+    return DateTime.makeUnsafe(input.nowMs);
+  }
   const activityAtMs =
     latestMillis([
       toMillis(thread.latestUserMessageAt),
@@ -307,6 +315,7 @@ export const make = Effect.gen(function* () {
   const random = yield* SecureRandom.SecureRandom;
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const issueLeaves = yield* Effect.serviceOption(IssueLeaveSettlement.IssueLeaveSettlement); // Fork-only (jehhynes/t3code#57)
   // A shell merge or close sends no event, and the branch lookup caches an open pull request for
   // a minute, so these threads' next lookup reads the host fresh.
   const shellClosedThreads = new Set<ThreadId>();
@@ -330,6 +339,9 @@ export const make = Effect.gen(function* () {
     const projects = new Map(projectShells.map((project) => [project.id, project]));
     // Merge events resweep all candidates because unlinked threads settle through branch lookup.
     const candidates = threads.filter((thread) => isAutoSettlementCandidate(thread, nowMs));
+    const issueLeft = Option.isSome(issueLeaves) // Fork-only (jehhynes/t3code#57)
+      ? yield* issueLeaves.value.threads(candidates)
+      : new Set<ThreadId>();
 
     // Runs per candidate thread, thousands per sweep on busy servers; the sweep owns the span.
     const settleThread = Effect.fnUntraced(
@@ -347,6 +359,7 @@ export const make = Effect.gen(function* () {
           autoSettleAfterDays: currentSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: currentSettings.sidebarAutoSettleOnMerge,
           autoSettleKeepPullRequests: currentSettings.sidebarAutoSettleKeepPullRequests,
+          issueLeft: issueLeft.has(thread.id), // Fork-only (jehhynes/t3code#57)
         });
         if (settledAt === null) return thread;
         const uuid = yield* random.uuidV4();
@@ -384,6 +397,7 @@ export const make = Effect.gen(function* () {
           autoSettleAfterDays: projectSettings.sidebarAutoSettleAfterDays,
           autoSettleOnMerge: projectSettings.sidebarAutoSettleOnMerge,
           autoSettleKeepPullRequests: projectSettings.sidebarAutoSettleKeepPullRequests,
+          issueLeft: issueLeft.has(thread.id), // Fork-only (jehhynes/t3code#57)
         });
         return settledAt === null ? Effect.succeed(thread) : settleThread(thread, null);
       },
@@ -463,6 +477,7 @@ export const make = Effect.gen(function* () {
             autoSettleAfterDays: settings.sidebarAutoSettleAfterDays,
             autoSettleOnMerge: settings.sidebarAutoSettleOnMerge,
             autoSettleKeepPullRequests: settings.sidebarAutoSettleKeepPullRequests,
+            issueLeft: issueLeft.has(thread.id), // Fork-only (jehhynes/t3code#57)
           }) !== null
         );
       });
@@ -708,6 +723,13 @@ export const make = Effect.gen(function* () {
       }),
     );
     yield* forkParked(Stream.runForEach(mergedPullRequests, (event) => runSweep(event)));
+    if (Option.isSome(issueLeaves)) {
+      // Fork-only (jehhynes/t3code#57): settle right after a board read records a leave.
+      const leaves = yield* issueLeaves.value.subscribeChanges;
+      yield* forkParked(
+        Stream.runForEach(Stream.fromSubscription(leaves), () => fullSweeps.enqueue(undefined)),
+      );
+    }
     yield* forkParked(
       Stream.runForEach(events, processEvent).pipe(
         Effect.catchCause((cause) =>

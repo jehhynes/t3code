@@ -445,6 +445,39 @@ describe("resolveAutoSettlementAt", () => {
       }),
     ).toEqual(at(-45 * 60 * 1_000));
   });
+
+  // Fork-only (jehhynes/t3code#57).
+  it("settles a thread whose issue left at once, unless it is kept open or every rule is off", () => {
+    const input = {
+      thread: shell({
+        latestUserMessageAt: at(-10 * 60_000),
+        linkedPullRequest: {
+          projectId: ProjectId.make("project-1"),
+          repository: "owner/repo",
+          number: 1,
+          url: "https://example.test/owner/repo/pull/1",
+        },
+      }),
+      pullRequest: null,
+      nowMs: NOW_MS,
+      autoSettleAfterDays: 7,
+      autoSettleOnMerge: false,
+      autoSettleKeepPullRequests: true,
+      issueLeft: true,
+    };
+    const settle = ThreadSettlementService.resolveAutoSettlementAt;
+    expect(settle(input)).toEqual(at(0));
+    expect(settle({ ...input, issueLeft: false })).toBeNull();
+    expect(settle({ ...input, autoSettleAfterDays: null })).toBeNull();
+    expect(settle({ ...input, autoSettleAfterDays: null, autoSettleOnMerge: true })).toEqual(at(0));
+    for (const kept of [
+      { pinnedAt: at(-1) },
+      { autoSettleDisabledAt: at(-1) },
+      { activityRunStatus: "running" as const },
+    ]) {
+      expect(settle({ ...input, thread: { ...input.thread, ...kept } })).toBeNull();
+    }
+  });
 });
 
 const NOW = "2026-08-28T12:00:00.000Z";

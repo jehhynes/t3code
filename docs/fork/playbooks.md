@@ -170,7 +170,8 @@ board that is off or cannot be read keeps its issues as they were, and so does e
 `playbooks.json` has a mistake or your GitHub account cannot be read. An issue that a board read
 leaves out leaves its selection only once T3 Code
 [confirms it is gone](issue-boards.md#when-an-issue-counts-as-gone). Starting needs the permission
-to run threads on that environment.
+to run threads on that environment. When an issue leaves every selection,
+[its threads settle](#when-a-thread-settles).
 
 ## Which folder a thread runs in
 
@@ -262,6 +263,40 @@ worktree controls and reuse by the issue's later threads. Two things differ: T3 
 recreate it when its folder goes missing, and automatic cleanup (**Settings → Worktrees → Cleanup**)
 leaves it alone, so with **Delete worktrees with deleted threads** on, deleting its thread leaves
 the worktree; with it off, Delete offers to remove it as usual.
+
+## When a thread settles
+
+When a board read finds that an issue left every playbook's selection, T3 Code settles the issue's
+open threads, as its own automatic settlement does: at once when a thread is idle, or when its
+running turn ends, without interrupting it. Nothing is shown when this happens. An issue leaves when
+it moves to a status or assignees that no playbook picks, is closed or is
+taken off the board, once T3 Code [confirms it is gone](issue-boards.md#when-an-issue-counts-as-gone).
+An issue that moves to another playbook's selection, such as from In progress to In review, has not
+left, and its thread stays open.
+
+A thread stays open when:
+
+- any automatic settlement would leave it open: it is pinned, its **Auto-settle behavior** is
+  **Never**, it waits for your answer or approval, it has a turn running or queued, the agent waits
+  on background work (a command it left running does not count), or it is snoozed;
+- every automatic rule is off for its project in **Settings → Threads** (settle on merge, and
+  settle inactive threads);
+- it is also linked to another issue that is still in a selection;
+- it was linked to the issue after the issue left;
+- the issue's board is off or could not be read in the latest read, or `playbooks.json` has a
+  mistake. A thread whose turn ends while one of these lasts settles once the boards can be read
+  again.
+
+**Keep threads with a PR** does not keep a thread open here, because the issue is done with it.
+
+Each leave settles a thread once. Un-settle it and it stays open on later board reads, also after
+you send it a message; only a new leave, after the issue came back into a selection and left again,
+settles it again. Leaves recorded before this version of T3 Code settle nothing.
+
+Settling does what any settle does: it closes the thread's idle terminals and runs the project's
+actions set to run when a thread settles. The issue's worktree stays, unless automatic worktree
+cleanup is on in **Settings → Worktrees**. When the issue comes back into a selection, it waits or
+starts again, and its new thread runs in the [issue's worktree](#which-folder-a-thread-runs-in).
 
 ## Start by itself
 

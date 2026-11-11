@@ -223,7 +223,8 @@ export type ProjectionSettlementCandidate = Pick<
   | "pendingBackgroundTasks"
   | "pendingGuestMessageCount"
 > &
-  Pick<OrchestrationV2AppThread, "lastSnoozeWakeAt"> & {
+  // Fork-only (jehhynes/t3code#57): `issues` and `unsettledAt` decide a settle for an issue's leave.
+  Pick<OrchestrationV2AppThread, "lastSnoozeWakeAt" | "issues" | "unsettledAt"> & {
     readonly latestUserAuthoredMessageAt: DateTime.Utc | null;
   };
 

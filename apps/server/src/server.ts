@@ -49,6 +49,7 @@ import { speechStreamRouteLayer } from "./speech/stream.ts";
 import * as PullRequestProviderRegistry from "./pullRequest/PullRequestProviderRegistry.ts";
 import * as PullRequestService from "./pullRequest/PullRequestService.ts";
 import * as IssueService from "./issue/IssueService.ts";
+import * as IssueLeaveSettlement from "./issue/IssueLeaveSettlement.ts"; // Fork-only (jehhynes/t3code#57)
 import * as PlaybookAutoStart from "./issue/PlaybookAutoStart.ts";
 import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
 import * as IssueWorktrees from "./issue/IssueWorktrees.ts"; // Fork-only (jehhynes/t3code#44)
@@ -630,7 +631,12 @@ const layerOrchestrationApplication = Layer.merge(
 
 const layerThreadSettlementWorker = Layer.effectDiscard(
   ThreadSettlementService.make.pipe(Effect.flatMap((service) => service.start())),
-).pipe(Layer.provide(layerPullRequestService), Layer.provide(ProjectionStoreV2.layer));
+).pipe(
+  Layer.provide(layerPullRequestService),
+  Layer.provide(ProjectionStoreV2.layer),
+  // Fork-only (jehhynes/t3code#57): settles a thread whose issue left every selection.
+  Layer.provide(IssueLeaveSettlement.layer.pipe(Layer.provide(layerIssueService))),
+);
 
 const layerIdleCompactionWorker = Layer.effectDiscard(
   IdleCompactionService.make.pipe(Effect.flatMap((service) => service.start())),
