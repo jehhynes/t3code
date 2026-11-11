@@ -31,6 +31,7 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 import { GitIcon, JujutsuIcon, type Icon } from "../Icons";
 import { IssueTrackerSettings } from "./IssueTrackerSettings";
+import { GitHubBoardSettings } from "./GitHubBoardSettings"; // Fork-only (jehhynes/t3code#85)
 import { SourceControlHostSettings } from "./SourceControlHostSettings";
 import { SourceControlAccountSettings } from "./SourceControlAccountSettings";
 import { SourceControlAppSignInSettings } from "./SourceControlAppSignInSettings";
@@ -523,6 +524,10 @@ export function SourceControlSettingsPanel() {
       )}
       {environmentId === null ? null : (
         <IssueTrackerSettings key={environmentId} environmentId={environmentId} />
+      )}
+      {/* Fork-only (jehhynes/t3code#85) */}
+      {environmentId === null ? null : (
+        <GitHubBoardSettings key={`github-boards-${environmentId}`} environmentId={environmentId} />
       )}
 
       <SourceControlWritingSettingsSection />

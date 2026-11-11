@@ -1129,6 +1129,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     environmentOnly: true,
     scope: "environment-defaults",
   },
+  // Fork-only (jehhynes/t3code#85), after Git fetch interval, which a search for "git" ranks first.
+  {
+    id: "github-boards",
+    title: "GitHub boards",
+    to: "/settings/source-control",
+    scope: "environment-defaults",
+    searchTerms: [
+      "project board owner number status field wait for blockers read interval threads at once limit",
+    ],
+  },
   {
     id: "worktree-branch-naming",
     title: "Worktree branch naming",

@@ -5,7 +5,19 @@ board, without a setting per repository.
 
 ## Name your boards
 
-Add `githubBoards` to the server's `settings.json` (`~/.t3/userdata/settings.json` by default):
+Name your boards in **Settings → Source control → GitHub boards**: **Add board** asks for the
+board's owner, number and status field, and whether it waits for blockers; each board has **Edit**
+and **Remove**. The same section sets how often the boards are read and how many issue threads run
+at once. A value outside the limits below, an empty field or a board already in the list is refused
+there with the reason, and nothing is saved. Changing these needs a connection that may
+change settings; any other connection sees them only.
+
+The section saves the same keys you can write by hand in the server's `settings.json`
+(`~/.t3/userdata/settings.json` by default), and shows what you write there. Any save from Settings,
+this section or another, writes the file in the server's own form: keys it does not know, and keys
+set to their default value, are left out, so a key you add that T3 Code does not read is lost at
+the next save. The other keys keep their values.
+In the file, boards are `githubBoards`:
 
 ```json
 {
@@ -28,22 +40,28 @@ Add `githubBoards` to the server's `settings.json` (`~/.t3/userdata/settings.jso
 
 The server reads every board that is on every five minutes, whether or not the Issues page is open,
 so a [playbook that starts by itself](playbooks.md#start-by-itself) can start. Set
-`githubBoardReadInterval` in milliseconds to change how often, such as `120000` for two minutes; a
-change applies at once. A value above zero but under 10 seconds counts as 10 seconds, and zero or
+**Board read interval** in Settings, in seconds and at least 10, or `githubBoardReadInterval` in the
+file in milliseconds, such as `120000` for two minutes, to change how often; a change applies at once. A value above zero but under 10 seconds counts as 10 seconds, and zero or
 less as five minutes. Opening the Issues page shows the latest read at once, and reads the boards
 again when that read is more than 30 seconds old; its refresh button reads them again.
 
-At most two issue threads run at once; set `maxRunningIssueThreads`, from 1 to 10, beside
-`githubBoardReadInterval` to change that. See [Run a few at a time](playbooks.md#run-a-few-at-a-time).
+At most two issue threads run at once; set **Issue threads at once** in Settings, or
+`maxRunningIssueThreads`, from 1 to 10, in the file, to change that. See [Run a few at a time](playbooks.md#run-a-few-at-a-time).
 
-A change to `githubBoards` applies at the next read. Remove a board from the list to stop showing
-it.
+A change to the boards, in Settings or in the file, reads them again at once, so the Issues page
+shows an added board and drops a removed one without a restart.
 
 ## Turn a board on and off
 
 A board you add starts off: its section shows only its heading, marked **Off**, and T3 Code does
 not read it from GitHub, so nothing starts from it. Turn it on with the switch in its heading, and its issues list at once.
 Turn it off for the weeks you do not work on it; its threads stay as they are.
+
+Removing a board in Settings does what turning it off does and also forgets its switch, so the board
+starts off if you add it again. Its issues' open threads stay open, and nothing more starts or
+settles from it. A board you give another owner or number in Settings starts off too. A board you
+remove from the file by hand keeps its switch: added back, by hand or in Settings, it is on or off
+as it was.
 
 The server remembers which boards are on across restarts. The switch never changes
 `settings.json`, so you can keep that file in git.

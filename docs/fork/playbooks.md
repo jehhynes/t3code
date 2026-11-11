@@ -359,8 +359,9 @@ interval of its blocker closing or of the dependency being removed.
 ## Run a few at a time
 
 At most two issue threads run at once, so a board with ten ready issues does not start ten agents
-together. Set `maxRunningIssueThreads` in `settings.json`, from 1 to 10, to change how many; another
-value is a mistake in the settings file, which T3 Code then reads as its defaults. A change applies
+together. Set **Issue threads at once** in Settings → Source control → GitHub boards, or
+`maxRunningIssueThreads` in `settings.json`, from 1 to 10, to change how many; another value in the
+file is a mistake, which T3 Code then reads as its defaults. A change applies
 to the next start.
 
 - A thread holds a slot while it is linked to a board issue, is not settled, archived or deleted,
