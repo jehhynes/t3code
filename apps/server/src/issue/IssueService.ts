@@ -644,7 +644,11 @@ const make = Effect.gen(function* () {
                 )
               : playbookEntries.list
           ).pipe(Effect.mapError(entriesError));
-      const result: IssueBoardResult = { boards: withThreads(boards, open, rows), playbookErrors };
+      const result: IssueBoardResult = {
+        boards: withThreads(boards, open, rows),
+        playbookErrors,
+        playbooks: playbooks.map((playbook) => playbook.name),
+      };
       latestReadAt = readAt;
       yield* SubscriptionRef.set(latestBoard, result);
       return result;

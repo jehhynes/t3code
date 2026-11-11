@@ -41,7 +41,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
 import { entryWaitingIn } from "./playbookEntries.ts";
-import { renderPlaybookPrompt } from "./playbookPrompt.ts";
+import { renderPlaybookPrompt, withGuidance } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
 export class PlaybookStartService extends Context.Service<
@@ -261,13 +261,14 @@ const make = Effect.gen(function* () {
     project: Project,
     id: string,
     decided: Ref.Ref<Decision | null>,
+    guidance: string | undefined,
   ) {
     const open = yield* threadLinks.listOpen.pipe(
       Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
     );
     const frameId = Buffer.from(yield* random.randomBytes(6)).toString("hex");
     const { commandId, messageId } = startIds(id);
-    const text = renderPlaybookPrompt(playbook.prompt, entry, frameId);
+    const text = withGuidance(renderPlaybookPrompt(playbook.prompt, entry, frameId), guidance);
 
     const thread = open.get(IssueThreadLinks.issueThreadKey(entry));
     if (thread !== undefined) {
@@ -352,17 +353,20 @@ const make = Effect.gen(function* () {
   });
 
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
-    function* ({ playbook: name, entry: requested }, options) {
+    function* ({ playbook: selection, entry: requested, startWith, guidance }, options) {
       const auto = options?.auto === true;
       const { playbooks, errors } = yield* readPlaybooksFile(playbooksPath).pipe(
         Effect.provideService(FileSystem.FileSystem, fileSystem),
       );
+      const name = startWith ?? selection;
       const playbook = playbooks.find(
         (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
       );
       if (playbook === undefined) {
         return yield* fail(`Playbook ${name} is not in ${PLAYBOOKS_FILE}, or it has a mistake.`);
       }
+      // Another playbook runs only this start: the issue stays in the selection the rules gave it.
+      const claimedPlaybook = startWith === undefined ? playbook.name : selection;
       // A mistake can hand a playbook issues that are not its own, so nothing starts by itself.
       if (auto && (errors.length > 0 || playbook.autoStart !== true)) {
         return yield* fail(`Playbook ${playbook.name} does not start by itself now.`);
@@ -380,7 +384,7 @@ const make = Effect.gen(function* () {
         startedBy: `issue-playbook:${id}`,
       };
       const claimEntry = entries
-        .claim({ ...claim, playbook: playbook.name, auto })
+        .claim({ ...claim, playbook: claimedPlaybook, auto })
         .pipe(
           Effect.mapError((cause) =>
             fail("Which issues wait for Start could not be saved.", cause),
@@ -390,7 +394,7 @@ const make = Effect.gen(function* () {
       // found a mistake, an unreadable account, or the board off or failed.
       const claimed: Effect.Effect<IssueBoardEntry | null, IssueOperationError> = auto
         ? issues.withLatestBoard((latest) => {
-            const current = entryWaitingIn(latest, claim.issueKey, playbook.name);
+            const current = entryWaitingIn(latest, claim.issueKey, claimedPlaybook);
             return current === undefined || current.projectId === null
               ? Effect.succeed(null)
               : claimEntry.pipe(Effect.map((ok) => (ok ? current : null)));
@@ -406,13 +410,14 @@ const make = Effect.gen(function* () {
                 Effect.flatMap(
                   Option.match({
                     onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
-                    onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
+                    onSome: (project) =>
+                      sendOrLaunch(playbook, entry, project, id, decided, guidance),
                   }),
                 ),
               )
             : Effect.fail(
                 fail(
-                  `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
+                  `This issue is not waiting for playbook ${claimedPlaybook}; refresh the Issues page.`,
                 ),
               ),
         // A Start that fails or is interrupted before its thread holds the prompt leaves the issue

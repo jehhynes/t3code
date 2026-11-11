@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 import { IssueSummary } from "./issue.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
@@ -104,6 +105,11 @@ export const IssueBoardResult = Schema.Struct({
   playbookErrors: Schema.Array(TrimmedNonEmptyString).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
+  /**
+   * The names of the playbooks in `playbooks.json`, in its order, without those with a mistake.
+   * Absent from a server older than this, which ignores a start's `startWith` and `guidance`.
+   */
+  playbooks: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
 });
 export type IssueBoardResult = typeof IssueBoardResult.Type;
 
@@ -117,8 +123,15 @@ export type IssueBoardSetEnabledInput = typeof IssueBoardSetEnabledInput.Type;
 
 /** Starts the named playbook's thread for a board issue, as the board listed it. */
 export const IssuePlaybookStartInput = Schema.Struct({
+  /** The playbook whose selection the issue waits in; the start claims that entry. */
   playbook: TrimmedNonEmptyString,
   entry: IssueBoardEntry,
+  /** Another playbook whose prompt and settings this start alone uses; the entry stays `playbook`'s. */
+  startWith: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Text added after the prompt and a blank line, as written: no fields are filled in. */
+  guidance: Schema.optionalKey(
+    Schema.String.check(Schema.isMaxLength(PROVIDER_SEND_TURN_MAX_INPUT_CHARS)),
+  ),
 });
 export type IssuePlaybookStartInput = typeof IssuePlaybookStartInput.Type;
 

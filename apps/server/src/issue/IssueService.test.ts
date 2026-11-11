@@ -655,7 +655,7 @@ describe("IssueService", () => {
       });
 
       const unconfigured = yield* makeService({ projects: [], trackers: [fakeTracker()] });
-      expect(yield* unconfigured.board).toEqual({ boards: [], playbookErrors: [] });
+      expect(yield* unconfigured.board).toEqual({ boards: [], playbookErrors: [], playbooks: [] });
     }),
   );
 
@@ -724,9 +724,10 @@ describe("IssueService", () => {
       const read = (playbooks: string) =>
         fs.writeFileString(`${baseDir}/userdata/playbooks.json`, playbooks).pipe(
           Effect.andThen(service.board),
-          Effect.map(({ boards, playbookErrors }) => ({
+          Effect.map(({ boards, playbookErrors, playbooks: names }) => ({
             playbooks: boards.flatMap((board) => board.entries.map((entry) => entry.playbook)),
             playbookErrors,
+            names,
           })),
         );
 
@@ -734,6 +735,7 @@ describe("IssueService", () => {
       expect(broken.playbooks).toEqual([null]);
       expect(broken.playbookErrors).toHaveLength(1);
       expect(broken.playbookErrors[0]).toMatch(/^playbooks\.json is not valid JSON: /);
+      expect(broken.names).toEqual([]);
 
       expect(
         yield* read(
@@ -745,6 +747,7 @@ describe("IssueService", () => {
       ).toEqual({
         playbooks: ["other"],
         playbookErrors: ["Playbook 1 (develop): Expected no excess property at rules.stauts"],
+        names: ["other"],
       });
       expect(viewerReads).toBe(0);
 
@@ -752,7 +755,11 @@ describe("IssueService", () => {
         { name: "develop", rules: { assignee: "nobody" }, prompt: "p" },
         { name: "other", prompt: "p" },
       ]);
-      expect(yield* read(assigned)).toEqual({ playbooks: ["develop"], playbookErrors: [] });
+      expect(yield* read(assigned)).toEqual({
+        playbooks: ["develop"],
+        playbookErrors: [],
+        names: ["develop", "other"],
+      });
       viewer = Effect.fail(
         new IssueTrackerError({
           tracker: GITHUB,
@@ -766,6 +773,7 @@ describe("IssueService", () => {
         playbookErrors: [
           "Your GitHub account could not be read, so no playbook applies: Bad credentials",
         ],
+        names: ["develop", "other"],
       });
       expect(viewerReads).toBe(2);
 
@@ -777,6 +785,7 @@ describe("IssueService", () => {
       expect(yield* unconfigured.board).toEqual({
         boards: [],
         playbookErrors: ["Playbook 1: Expected object"],
+        playbooks: [],
       });
     }).pipe(Effect.provide(NodeServices.layer)),
   );
