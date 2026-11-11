@@ -194,7 +194,10 @@ import {
 import {
   IssueBoardResult,
   IssueBoardSetEnabledInput,
+  IssuePlaybookDraft,
+  IssuePlaybookDraftInput,
   IssuePlaybookStartInput,
+  IssuePlaybookStartOnSendInput,
   IssuePlaybookStartResult,
 } from "./issueBoard.ts";
 import {
@@ -633,6 +636,8 @@ export const WS_METHODS = {
   issuesSubscribeBoard: "issues.subscribeBoard",
   issuesSetBoardEnabled: "issues.setBoardEnabled",
   issuesStartPlaybook: "issues.startPlaybook",
+  issuesPreparePlaybookDraft: "issues.preparePlaybookDraft",
+  issuesStartPlaybookOnSend: "issues.startPlaybookOnSend",
   issuesDetail: "issues.detail",
   issuesComments: "issues.comments",
   issuesTemplates: "issues.templates",
@@ -1324,6 +1329,18 @@ const WsIssuesSetBoardEnabledRpc = Rpc.make(WS_METHODS.issuesSetBoardEnabled, {
 const WsIssuesStartPlaybookRpc = Rpc.make(WS_METHODS.issuesStartPlaybook, {
   payload: IssuePlaybookStartInput,
   success: IssuePlaybookStartResult,
+  error: IssueRpcError,
+});
+
+const WsIssuesPreparePlaybookDraftRpc = Rpc.make(WS_METHODS.issuesPreparePlaybookDraft, {
+  payload: IssuePlaybookDraftInput,
+  success: IssuePlaybookDraft,
+  error: IssueRpcError,
+});
+
+const WsIssuesStartPlaybookOnSendRpc = Rpc.make(WS_METHODS.issuesStartPlaybookOnSend, {
+  payload: IssuePlaybookStartOnSendInput,
+  success: Schema.Void,
   error: IssueRpcError,
 });
 
@@ -2243,6 +2260,8 @@ export const WsIssuesRpcGroup = RpcGroup.make(
   WsIssuesSubscribeBoardRpc,
   WsIssuesSetBoardEnabledRpc,
   WsIssuesStartPlaybookRpc,
+  WsIssuesPreparePlaybookDraftRpc,
+  WsIssuesStartPlaybookOnSendRpc,
   WsIssuesDetailRpc,
   WsIssuesCommentsRpc,
   WsIssuesTemplatesRpc,

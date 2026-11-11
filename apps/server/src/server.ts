@@ -214,6 +214,7 @@ import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
 import * as ThreadSettlementService from "./orchestration-v2/ThreadSettlementService.ts";
 import * as IdleCompactionService from "./orchestration-v2/IdleCompactionService.ts";
 import * as ThreadPullRequestService from "./orchestration-v2/ThreadPullRequestService.ts";
+import * as Orchestrator from "./orchestration-v2/Orchestrator.ts";
 import * as ThreadIssueService from "./orchestration-v2/ThreadIssueService.ts";
 import * as RunFinalizationService from "./orchestration-v2/RunFinalizationService.ts";
 import * as ProjectionMaintenance from "./orchestration-v2/ProjectionMaintenance.ts";
@@ -640,6 +641,17 @@ const layerThreadIssueWorker = Layer.effectDiscard(
   ThreadIssueService.ThreadIssueService.pipe(Effect.flatMap((service) => service.start())),
 ).pipe(Layer.provide(layerThreadIssueService));
 
+// Fork-only (jehhynes/t3code#35): a sent draft starts its issue on the shared start service.
+const layerPlaybookDraftStartWorker = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const starts = yield* PlaybookStartService.PlaybookStartService;
+    yield* ServerActivation.forkParked(
+      Stream.runForEach(orchestrator.streamDomainEvents, starts.handleEvent),
+    );
+  }),
+).pipe(Layer.provide(layerPlaybookStartService));
+
 const layerProviderInstallationRefresh = Layer.effectDiscard(
   Effect.gen(function* () {
     const antigravity = yield* AntigravityInstallation.AntigravityInstallation;
@@ -698,6 +710,7 @@ const layerRuntimeCoreDependenciesBase = Layer.mergeAll(
   ),
   layerThreadPullRequestWorker,
   layerThreadIssueWorker,
+  layerPlaybookDraftStartWorker,
   DelegatedTaskAnalytics.layer,
   Layer.effectDiscard(
     Effect.gen(function* () {

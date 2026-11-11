@@ -2,7 +2,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
 import {
   CommandId,
+  EventId,
   IssueTrackerKind,
+  MessageId,
   ProjectId,
   RunId,
   ThreadId,
@@ -11,6 +13,8 @@ import {
   type IssueOperationError,
   type IssuePlaybookStartInput,
   type IssuePlaybookStartResult,
+  type OrchestrationV2ConversationMessage,
+  type OrchestrationV2DomainEvent,
   type OrchestrationV2ServerCommand,
   type OrchestrationV2ThreadShell,
   type Project,
@@ -27,7 +31,11 @@ import type * as Result from "effect/Result";
 
 import * as ServerConfig from "../config.ts";
 import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
-import { OrchestratorCommandRejectedError } from "../orchestration-v2/Orchestrator.ts";
+import {
+  OrchestratorCommandRejectedError,
+  OrchestratorProjectionError,
+} from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadIssueService from "../orchestration-v2/ThreadIssueService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
@@ -112,6 +120,10 @@ interface Options {
   readonly issueWorktree?: IssueThreadLinks.IssueWorktree;
   /** What `git worktree list` lists in the project, or a list that fails; none when left out. */
   readonly listedWorktrees?: ReadonlyArray<string> | "fails";
+  /** The messages a thread has; none when left out. */
+  readonly threadMessages?: ReadonlyArray<MessageId>;
+  /** A thread whose messages are read: one not created yet, or a read that fails. */
+  readonly threadRead?: "missing" | "fails";
 }
 
 type Guided = Pick<IssuePlaybookStartInput, "startWith" | "guidance">;
@@ -137,6 +149,7 @@ function harness<A, E>(
       playbook: string,
       guided?: Guided,
     ) => Effect.Effect<Result.Result<IssuePlaybookStartResult, IssueOperationError>>;
+    readonly service: PlaybookStartService.PlaybookStartService["Service"];
     readonly launched: ReadonlyArray<ThreadLaunchService.ThreadLaunchInput>;
     readonly linked: ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>;
     readonly sent: ReadonlyArray<ThreadManagement.ThreadManagementSendInput>;
@@ -197,6 +210,7 @@ function harness<A, E>(
               { auto: input.auto === true },
             )
             .pipe(Effect.result),
+        service,
         launched,
         linked,
         sent,
@@ -275,13 +289,25 @@ function harness<A, E>(
                   }),
                 getThreadShell: (id) =>
                   Effect.succeed({ id, title: "Open thread" } as OrchestrationV2ThreadShell),
-                getThreadRecords: (_threadId, _fields, filter) =>
-                  Effect.succeed({
-                    messages: (filter?.messageIds ?? []).map((id) => ({
-                      id,
-                      runId: preparingRunId,
-                    })),
-                  } as never),
+                getThreadRecords: (readId, _fields, filter) =>
+                  input.threadRead !== undefined && filter?.messageIds === undefined
+                    ? Effect.fail(
+                        new OrchestratorProjectionError({
+                          threadId: readId,
+                          cause:
+                            input.threadRead === "missing"
+                              ? new ProjectionStore.ProjectionStoreThreadNotFoundError({
+                                  threadId: readId,
+                                })
+                              : new Error("disk"),
+                        }),
+                      )
+                    : Effect.succeed({
+                        messages: (filter?.messageIds ?? input.threadMessages ?? []).map((id) => ({
+                          id,
+                          runId: preparingRunId,
+                        })),
+                      } as never),
                 dispatch: (command) =>
                   Effect.suspend(() => {
                     dispatched.push(command);
@@ -933,6 +959,310 @@ describe("PlaybookStartService.start", () => {
             expect((yield* stored)?.startFailure).toBeNull();
           }),
       );
+    }),
+  );
+});
+
+describe("PlaybookStartService.prepareDraft", () => {
+  const prepare = (input: Options & { readonly playbook: string; readonly use?: string }) =>
+    harness(input, ({ service }) =>
+      service
+        .prepareDraft({
+          playbook: input.playbook,
+          entry: input.entry ?? entry,
+          ...(input.use === undefined ? {} : { use: input.use }),
+        })
+        .pipe(Effect.result),
+    );
+
+  it.effect("holds the rendered prompt and the settings and folder Start would launch with", () =>
+    Effect.gen(function* () {
+      const result = yield* prepare({ playbook: "develop" });
+
+      expect(result).toMatchObject({
+        _tag: "Success",
+        success: {
+          threadId: null,
+          modelSelection: { instanceId: "codex", model: "gpt-5.4-mini" },
+          runtimeMode: "approval-required",
+          workspace: { type: "root" },
+        },
+      });
+      expect(result._tag === "Success" && result.success.prompt).toMatch(
+        /^Work on <issue-data-(\w+)>Start a thread<\/issue-data-\1>\.\n\n[^]*untrusted data\.$/,
+      );
+    }),
+  );
+
+  it.effect.each([
+    {
+      name: "the project's defaults for a playbook that names none",
+      input: { playbook: "plain" },
+      prompt: /^Look at <issue-data-/,
+      draft: {
+        modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
+        runtimeMode: "auto-accept-edits",
+        workspace: { type: "root" },
+      },
+    },
+    {
+      name: "another playbook's prompt and settings",
+      input: { playbook: "plain", use: "isolated" },
+      prompt: /^Fix <issue-data-/,
+      draft: {
+        modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
+        workspace: { type: "worktree", baseRef: "origin/trunk", startFromOrigin: false },
+      },
+    },
+    {
+      name: "the worktree the issue already has",
+      input: { playbook: "plain", issueWorktree, listedWorktrees: [issueWorktree.worktreePath] },
+      prompt: /^Look at <issue-data-/,
+      draft: {
+        workspace: {
+          type: "existing_worktree",
+          worktreePath: issueWorktree.worktreePath,
+          branch: issueWorktree.branch,
+        },
+      },
+    },
+  ])("holds $name", ({ input, draft, prompt }) =>
+    Effect.gen(function* () {
+      const result = yield* prepare(input);
+      expect(result).toMatchObject({ _tag: "Success", success: draft });
+      expect(result._tag === "Success" && result.success.prompt).toMatch(prompt);
+    }),
+  );
+
+  it.effect("names the issue's open thread, which keeps its own settings and folder", () =>
+    Effect.gen(function* () {
+      const result = yield* prepare({ playbook: "plain", openIssueKeys: [issueKey] });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: openThreadId } });
+      expect(result._tag === "Success" && result.success).not.toHaveProperty("workspace");
+      expect(result._tag === "Success" && result.success.prompt).toMatch(/^Look at <issue-data-/);
+    }),
+  );
+
+  it.effect("refuses a playbook that is not in the file", () =>
+    Effect.gen(function* () {
+      expect(yield* prepare({ playbook: "plain", use: "ship" })).toMatchObject({
+        _tag: "Failure",
+        failure: { detail: "Playbook ship is not in playbooks.json, or it has a mistake." },
+      });
+    }),
+  );
+});
+
+const draftThreadId = ThreadId.make("thread-draft");
+const earlierId = MessageId.make("message-earlier");
+
+const composerMessage = (
+  overrides: Partial<OrchestrationV2ConversationMessage> = {},
+): OrchestrationV2ConversationMessage =>
+  ({
+    id: MessageId.make("message-sent"),
+    threadId: draftThreadId,
+    runId: null,
+    nodeId: null,
+    role: "user",
+    text: "Work on it.",
+    attachments: [],
+    streaming: false,
+    createdBy: "user",
+    creationSource: "web",
+    createdAt: DateTime.makeUnsafe(0),
+    updatedAt: DateTime.makeUnsafe(0),
+    ...overrides,
+  }) as OrchestrationV2ConversationMessage;
+
+const messageEvent = (message: OrchestrationV2ConversationMessage): OrchestrationV2DomainEvent =>
+  ({
+    id: EventId.make(`event-${message.id}`),
+    threadId: message.threadId,
+    occurredAt: DateTime.makeUnsafe(0),
+    type: "message.updated",
+    payload: message,
+  }) as OrchestrationV2DomainEvent;
+
+describe("PlaybookStartService.isComposerMessage", () => {
+  it.each([
+    { name: "a message I sent", message: composerMessage(), counts: true },
+    {
+      name: "an automatic /compact",
+      message: composerMessage({ idleCompaction: "onReturn" } as never),
+      counts: false,
+    },
+    {
+      name: "approval feedback",
+      message: composerMessage({ creationSource: "server" }),
+      counts: false,
+    },
+    { name: "an agent's message", message: composerMessage({ createdBy: "agent" }), counts: false },
+    { name: "an answer", message: composerMessage({ role: "assistant" }), counts: false },
+    {
+      name: "a scheduled task's message",
+      message: composerMessage({ scheduledTaskId: "task-1" } as never),
+      counts: false,
+    },
+    {
+      name: "another thread's message",
+      message: composerMessage({ senderThreadId: openThreadId }),
+      counts: false,
+    },
+    {
+      name: "a delegated task's completion",
+      message: composerMessage({ delegatedCompletion: {} } as never),
+      counts: false,
+    },
+  ])("counts $name: $counts", ({ message, counts }) => {
+    expect(PlaybookStartService.isComposerMessage(message)).toBe(counts);
+  });
+});
+
+describe("PlaybookStartService.startOnSend", () => {
+  const sent = (
+    input: Options & {
+      readonly playbook?: string;
+      readonly thread?: ThreadId;
+      readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
+    },
+  ) =>
+    harness(input, (context) =>
+      Effect.gen(function* () {
+        const thread = input.thread ?? draftThreadId;
+        yield* context.service.startOnSend({
+          playbook: input.playbook ?? "develop",
+          entry: input.entry ?? entry,
+          threadId: thread,
+        });
+        for (const message of input.messages) {
+          yield* context.service.handleEvent(messageEvent({ ...message, threadId: thread }));
+        }
+        yield* context.service.drain;
+        return { ...context, stored: yield* context.stored };
+      }),
+    );
+
+  it.effect("starts the issue when I send the draft, and links its thread", () =>
+    Effect.gen(function* () {
+      const {
+        stored,
+        linked,
+        launched,
+        sent: sends,
+        refreshed,
+      } = yield* sent({
+        messages: [composerMessage(), composerMessage({ id: MessageId.make("message-next") })],
+      });
+
+      expect(stored).toMatchObject({
+        playbook: "develop",
+        startedBy: `issue-playbook-draft:${draftThreadId}`,
+      });
+      expect(linked).toEqual([
+        {
+          threadId: draftThreadId,
+          ref: { projectId, tracker: "github", host: "github.com", scope: "acme/web", key: "6" },
+          url: "https://github.com/acme/web/issues/6",
+          source: "manual",
+        },
+      ]);
+      expect(launched).toEqual([]);
+      expect(sends).toEqual([]);
+      expect(refreshed()).toBe(1);
+    }),
+  );
+
+  it.effect.each([
+    { name: "a compaction", sends: [composerMessage({ idleCompaction: "onReturn" } as never)] },
+    // The open thread already had this message, which an edit updates again.
+    { name: "a message its thread already had", sends: [composerMessage({ id: earlierId })] },
+  ])("waits past $name for the message I send", ({ sends }) =>
+    Effect.gen(function* () {
+      const waiting = yield* sent({ messages: sends, threadMessages: [earlierId] });
+      expect(waiting.stored?.startedBy).toBeNull();
+      expect(waiting.linked).toEqual([]);
+      expect(waiting.refreshed()).toBe(0);
+
+      const started = yield* sent({
+        messages: [...sends, composerMessage()],
+        threadMessages: [earlierId],
+      });
+      expect(started.stored?.startedBy).toBe(`issue-playbook-draft:${draftThreadId}`);
+    }),
+  );
+
+  it.effect.each([
+    { threadRead: "missing" as const, registers: true },
+    { threadRead: "fails" as const, registers: false },
+  ])("registers a thread whose read is $threadRead: $registers", ({ threadRead, registers }) =>
+    harness({ threadRead }, ({ service, stored }) =>
+      Effect.gen(function* () {
+        const registered = yield* service
+          .startOnSend({ playbook: "develop", entry, threadId: draftThreadId })
+          .pipe(Effect.result);
+        expect(registered._tag).toBe(registers ? "Success" : "Failure");
+        yield* service.handleEvent(messageEvent(composerMessage()));
+        yield* service.drain;
+        expect((yield* stored)?.startedBy).toBe(
+          registers ? `issue-playbook-draft:${draftThreadId}` : null,
+        );
+      }),
+    ),
+  );
+
+  it.effect("leaves a thread sent after another start an ordinary thread", () =>
+    Effect.gen(function* () {
+      const { stored, linked } = yield* sent({ waitingWith: null, messages: [composerMessage()] });
+
+      expect(stored?.startedBy).toBe("issue-playbook:earlier");
+      expect(linked).toEqual([]);
+    }),
+  );
+
+  it.effect("keeps the issue in its own selection for another playbook's draft", () =>
+    Effect.gen(function* () {
+      const { stored } = yield* sent({
+        playbook: "plain",
+        waitingWith: "plain",
+        messages: [composerMessage()],
+      });
+
+      expect(stored).toMatchObject({ playbook: "plain", startedBy: expect.any(String) });
+    }),
+  );
+
+  it.effect("keeps the issue started when the sent thread cannot be linked", () =>
+    Effect.gen(function* () {
+      const { stored, refreshed } = yield* sent({
+        messages: [composerMessage()],
+        link: () =>
+          Effect.fail(
+            new OrchestratorCommandRejectedError({
+              commandId: CommandId.make("link"),
+              commandType: "thread.issue.link",
+            }),
+          ),
+      });
+
+      expect(stored?.startedBy).toBe(`issue-playbook-draft:${draftThreadId}`);
+      expect(refreshed()).toBe(1);
+    }),
+  );
+
+  it.effect("starts the issue from its open thread without a second thread", () =>
+    Effect.gen(function* () {
+      const { stored, launched, sends } = yield* sent({
+        thread: openThreadId,
+        openIssueKeys: [issueKey],
+        link: () => Effect.succeed({ alreadyLinked: true }),
+        messages: [composerMessage()],
+      }).pipe(Effect.map((context) => ({ ...context, sends: context.sent })));
+
+      expect(stored?.startedBy).toBe(`issue-playbook-draft:${openThreadId}`);
+      expect(launched).toEqual([]);
+      expect(sends).toEqual([]);
     }),
   );
 });

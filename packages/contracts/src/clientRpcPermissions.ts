@@ -51,6 +51,9 @@ export const CLIENT_GUARDED_RPC_SCOPES = {
   [WS_METHODS.issuesSetBoardEnabled]: AuthSettingsWriteScope,
   // Starts a thread and its first turn, as launching one from the composer does.
   [WS_METHODS.issuesStartPlaybook]: AuthOrchestrationOperateScope,
+  // A draft's prompt and its start on Send belong to Start, so they need its grant.
+  [WS_METHODS.issuesPreparePlaybookDraft]: AuthOrchestrationOperateScope,
+  [WS_METHODS.issuesStartPlaybookOnSend]: AuthOrchestrationOperateScope,
   // Writing a guide runs a model on this environment's providers, which reading one does not.
   [WS_METHODS.pullRequestsGenerateReviewGuide]: AuthOrchestrationOperateScope,
   [WS_METHODS.projectsCreateFromThread]: AuthOrchestrationOperateScope,

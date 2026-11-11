@@ -7,14 +7,20 @@ import {
   MessageId,
   type IssueBoardEntry,
   type IssuePlaybook,
+  type IssuePlaybookDraft,
+  type IssuePlaybookDraftInput,
   type IssuePlaybookStartInput,
+  type IssuePlaybookStartOnSendInput,
   type IssuePlaybookStartResult,
+  type OrchestrationV2ConversationMessage,
+  type OrchestrationV2DomainEvent,
   type Project,
   type ProjectId,
   type ThreadId,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -33,6 +39,7 @@ import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts
 import * as ThreadIssueService from "../orchestration-v2/ThreadIssueService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
 import { OrchestratorRuntimeModeAboveCeilingError } from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ThreadManagement from "../orchestration-v2/ThreadManagementService.ts";
 import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
@@ -62,10 +69,38 @@ export class PlaybookStartService extends Context.Service<
         readonly auto?: boolean;
       },
     ) => Effect.Effect<IssuePlaybookStartResult, IssueOperationError>;
+    /** What a draft for the issue holds: the prompt, settings and folder Start would launch with. */
+    readonly prepareDraft: (
+      input: IssuePlaybookDraftInput,
+    ) => Effect.Effect<IssuePlaybookDraft, IssueOperationError>;
+    /**
+     * My next message accepted on the thread starts the issue's entry, as Start would have, and
+     * links the thread. Kept in memory until that message.
+     */
+    readonly startOnSend: (
+      input: IssuePlaybookStartOnSendInput,
+    ) => Effect.Effect<void, IssueOperationError>;
+    /** Takes each committed domain event; a draft's start runs on a worker. */
+    readonly handleEvent: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
+    readonly drain: Effect.Effect<void>;
   }
 >()("t3/issue/PlaybookStartService") {}
 
+/** A message I sent, not a compaction, approval feedback, a scheduled task's or an agent's. */
+export function isComposerMessage(message: OrchestrationV2ConversationMessage): boolean {
+  return (
+    message.role === "user" &&
+    message.createdBy === "user" &&
+    message.creationSource !== "server" &&
+    message.idleCompaction === undefined &&
+    message.scheduledTaskId === undefined &&
+    message.senderThreadId === undefined &&
+    message.delegatedCompletion === undefined
+  );
+}
+
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
+const isThreadNotFound = Schema.is(ProjectionStore.ProjectionStoreThreadNotFoundError);
 const isThreadLaunchError = Schema.is(ThreadLaunchService.ThreadLaunchError);
 
 /** Whether a failed start leaves its issue started, or waiting again with the failure's cause. */
@@ -257,6 +292,48 @@ const make = Effect.gen(function* () {
     );
   });
 
+  /** What a new thread for the issue launches with, as the MCP launch resolves a project's. */
+  const launchSettings = Effect.fn("PlaybookStartService.launchSettings")(function* (
+    playbook: IssuePlaybook,
+    entry: IssueBoardEntry,
+    project: Project,
+  ) {
+    const settings = resolveProjectSettings(
+      yield* serverSettings.getSettings.pipe(
+        Effect.mapError((cause) => fail("The server settings could not be read.", cause)),
+      ),
+      project.id,
+      project,
+    ).settings;
+    const modelSelection =
+      playbook.modelSelection ??
+      resolveNewThreadModelSelection({
+        defaultSelection: settings.defaultModelSelection,
+        fallbackSelection: settings.fallbackModelSelection,
+        providers: yield* providers.getProviders,
+        settings,
+        projectId: project.id,
+        now: DateTime.toEpochMillis(yield* DateTime.now),
+      }).selection;
+    if (modelSelection === null) {
+      return yield* fail(
+        `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
+      );
+    }
+    const workspaceStrategy = yield* issueWorkspace({
+      issueKey: IssueThreadLinks.issueThreadKey(entry),
+      project,
+      requiresWorktree: playbook.requiresWorktree === true,
+      startFromOrigin: settings.newWorktreesStartFromOrigin,
+    }).pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
+    return {
+      modelSelection,
+      runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
+      interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
+      workspaceStrategy,
+    };
+  });
+
   const sendOrLaunch = Effect.fn("PlaybookStartService.sendOrLaunch")(function* (
     playbook: IssuePlaybook,
     entry: IssueBoardEntry,
@@ -298,35 +375,8 @@ const make = Effect.gen(function* () {
       return { threadId: thread.threadId };
     }
 
-    // What a new thread in the project would take, as the MCP launch resolves it.
-    const settings = resolveProjectSettings(
-      yield* serverSettings.getSettings.pipe(
-        Effect.mapError((cause) => fail("The server settings could not be read.", cause)),
-      ),
-      project.id,
-      project,
-    ).settings;
-    const modelSelection =
-      playbook.modelSelection ??
-      resolveNewThreadModelSelection({
-        defaultSelection: settings.defaultModelSelection,
-        fallbackSelection: settings.fallbackModelSelection,
-        providers: yield* providers.getProviders,
-        settings,
-        projectId: project.id,
-        now: DateTime.toEpochMillis(yield* DateTime.now),
-      }).selection;
-    if (modelSelection === null) {
-      return yield* fail(
-        `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
-      );
-    }
-    const workspaceStrategy = yield* issueWorkspace({
-      issueKey: IssueThreadLinks.issueThreadKey(entry),
-      project,
-      requiresWorktree: playbook.requiresWorktree === true,
-      startFromOrigin: settings.newWorktreesStartFromOrigin,
-    }).pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
+    const { modelSelection, runtimeMode, interactionMode, workspaceStrategy } =
+      yield* launchSettings(playbook, entry, project);
 
     const { threadId } = yield* launches
       .launch({
@@ -334,8 +384,8 @@ const make = Effect.gen(function* () {
         projectId: project.id,
         title: `${entry.displayKey} ${entry.title}`,
         modelSelection,
-        runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
-        interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode,
+        interactionMode,
         workspaceStrategy,
         initialMessage: { messageId, text, attachments: [] },
         createdBy: "user",
@@ -360,19 +410,32 @@ const make = Effect.gen(function* () {
     return { threadId };
   });
 
+  const findPlaybook = Effect.fn("PlaybookStartService.findPlaybook")(function* (name: string) {
+    const { playbooks, errors } = yield* readPlaybooksFile(playbooksPath).pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+    );
+    const playbook = playbooks.find(
+      (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (playbook === undefined) {
+      return yield* fail(`Playbook ${name} is not in ${PLAYBOOKS_FILE}, or it has a mistake.`);
+    }
+    return { playbook, errors };
+  });
+
+  const projectOf = Effect.fn("PlaybookStartService.projectOf")(function* (entry: IssueBoardEntry) {
+    if (entry.projectId === null) return yield* fail(`No T3 Code project is for ${entry.scope}.`);
+    const project = yield* projects
+      .getById(entry.projectId)
+      .pipe(Effect.mapError((cause) => fail("The project could not be read.", cause)));
+    if (Option.isNone(project)) return yield* fail("The issue's project no longer exists.");
+    return project.value;
+  });
+
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
     function* ({ playbook: selection, entry: requested, startWith, guidance }, options) {
       const auto = options?.auto === true;
-      const { playbooks, errors } = yield* readPlaybooksFile(playbooksPath).pipe(
-        Effect.provideService(FileSystem.FileSystem, fileSystem),
-      );
-      const name = startWith ?? selection;
-      const playbook = playbooks.find(
-        (candidate) => candidate.name.toLowerCase() === name.toLowerCase(),
-      );
-      if (playbook === undefined) {
-        return yield* fail(`Playbook ${name} is not in ${PLAYBOOKS_FILE}, or it has a mistake.`);
-      }
+      const { playbook, errors } = yield* findPlaybook(startWith ?? selection);
       // Another playbook runs only this start: the issue stays in the selection the rules gave it.
       const claimedPlaybook = startWith === undefined ? playbook.name : selection;
       // A mistake can hand a playbook issues that are not its own, so nothing starts by itself.
@@ -467,7 +530,109 @@ const make = Effect.gen(function* () {
     },
   );
 
-  return PlaybookStartService.of({ start });
+  const prepareDraft: PlaybookStartService["Service"]["prepareDraft"] = Effect.fn(
+    "PlaybookStartService.prepareDraft",
+  )(function* ({ playbook: selection, entry, use }) {
+    const { playbook } = yield* findPlaybook(use ?? selection);
+    const project = yield* projectOf(entry);
+    const open = yield* threadLinks.listOpen.pipe(
+      Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
+    );
+    const frameId = Buffer.from(yield* random.randomBytes(6)).toString("hex");
+    const prompt = renderPlaybookPrompt(playbook.prompt, entry, frameId);
+    // As Start does, the open thread keeps its own model, modes and folder.
+    const thread = open.get(IssueThreadLinks.issueThreadKey(entry));
+    if (thread !== undefined) return { prompt, threadId: thread.threadId };
+    const { modelSelection, runtimeMode, workspaceStrategy } = yield* launchSettings(
+      playbook,
+      entry,
+      project,
+    );
+    return { prompt, threadId: null, modelSelection, runtimeMode, workspace: workspaceStrategy };
+  });
+
+  // Fork-only (jehhynes/t3code#35): the thread whose next composer message starts each issue,
+  // with the messages it already had, which an edit or a promotion would update again.
+  const startsOnSend = new Map<
+    ThreadId,
+    { readonly input: IssuePlaybookStartOnSendInput; readonly earlier: ReadonlySet<MessageId> }
+  >();
+
+  const startOnSend: PlaybookStartService["Service"]["startOnSend"] = Effect.fn(
+    "PlaybookStartService.startOnSend",
+  )(function* (input) {
+    if (input.entry.projectId === null) {
+      return yield* fail(`No T3 Code project is for ${input.entry.scope}.`);
+    }
+    const { messages } = yield* threads
+      .getThreadRecords(input.threadId, ["messages"], { messageRoles: ["user"] })
+      .pipe(
+        // A draft's thread does not exist yet, so it has no messages.
+        Effect.catchIf(
+          (error) => "cause" in error && isThreadNotFound(error.cause),
+          () => Effect.succeed({ messages: [] }),
+        ),
+        Effect.mapError((cause) => fail("The thread's messages could not be read.", cause)),
+      );
+    startsOnSend.set(input.threadId, {
+      input,
+      earlier: new Set(messages.map((message) => message.id)),
+    });
+  });
+
+  /** Claims the entry as Start would; a thread sent after another start stays an ordinary thread. */
+  const startSent = Effect.fn("PlaybookStartService.startSent")(function* ({
+    playbook,
+    entry,
+    threadId,
+  }: IssuePlaybookStartOnSendInput) {
+    const issueKey = IssueThreadLinks.issueThreadKey(entry);
+    const claimed = yield* entries.claim({
+      issueKey,
+      playbook,
+      startedBy: `issue-playbook-draft:${threadId}`,
+    });
+    if (!claimed) {
+      return yield* Effect.logInfo("A sent draft's issue was no longer waiting", {
+        issue: issueKey,
+        threadId,
+      });
+    }
+    // The thread holds the prompt, so the issue stays started even when it cannot be linked.
+    if (entry.projectId !== null) {
+      yield* linkThread(threadId, entry, entry.projectId).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("A sent draft's thread could not be linked to its issue", {
+            issue: issueKey,
+            threadId,
+            cause,
+          }),
+        ),
+      );
+    }
+    yield* issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true }));
+  });
+
+  const worker = yield* makeDrainableWorker(startSent);
+
+  // Untraced: it sees every domain event, and a match is traced by `startSent`.
+  const handleEvent: PlaybookStartService["Service"]["handleEvent"] = Effect.fnUntraced(
+    function* (event) {
+      if (event.type !== "message.updated" || !isComposerMessage(event.payload)) return;
+      const pending = startsOnSend.get(event.threadId);
+      if (pending === undefined || pending.earlier.has(event.payload.id)) return;
+      startsOnSend.delete(event.threadId);
+      yield* worker.enqueue(pending.input);
+    },
+  );
+
+  return PlaybookStartService.of({
+    start,
+    prepareDraft,
+    startOnSend,
+    handleEvent,
+    drain: worker.drain,
+  });
 });
 
 export const layer = Layer.effect(PlaybookStartService, make);

@@ -5,6 +5,7 @@ import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseS
 import { PROVIDER_SEND_TURN_MAX_INPUT_CHARS } from "./chatAttachment.ts";
 import { IssueSummary } from "./issue.ts";
 import { ModelSelection } from "./modelSelection.ts";
+import { OrchestrationV2ThreadLaunchWorkspaceStrategy } from "./orchestrationV2.ts";
 import { ProviderInteractionMode, RuntimeMode } from "./providerPolicy.ts";
 
 /** A GitHub Projects board read as one issue source, named in `settings.json`. */
@@ -139,3 +140,36 @@ export type IssuePlaybookStartInput = typeof IssuePlaybookStartInput.Type;
 
 export const IssuePlaybookStartResult = Schema.Struct({ threadId: ThreadId });
 export type IssuePlaybookStartResult = typeof IssuePlaybookStartResult.Type;
+
+/** What a draft thread for a board issue holds before I send it, as Start would launch it. */
+export const IssuePlaybookDraftInput = Schema.Struct({
+  /** The playbook whose selection the issue waits in. */
+  playbook: TrimmedNonEmptyString,
+  entry: IssueBoardEntry,
+  /** Another playbook whose prompt and settings the draft takes. */
+  use: Schema.optionalKey(TrimmedNonEmptyString),
+});
+export type IssuePlaybookDraftInput = typeof IssuePlaybookDraftInput.Type;
+
+/** The prompt is rendered with the issue's fields, each framed as untrusted data. */
+export const IssuePlaybookDraft = Schema.Union([
+  /** The issue's open thread takes the prompt in its composer and keeps its own settings. */
+  Schema.Struct({ prompt: Schema.String, threadId: ThreadId }),
+  /** A new draft, with the settings and folder Start would launch with. */
+  Schema.Struct({
+    prompt: Schema.String,
+    threadId: Schema.Null,
+    modelSelection: ModelSelection,
+    runtimeMode: RuntimeMode,
+    workspace: OrchestrationV2ThreadLaunchWorkspaceStrategy,
+  }),
+]);
+export type IssuePlaybookDraft = typeof IssuePlaybookDraft.Type;
+
+/** My next new message accepted on `threadId` starts the issue's entry in `playbook`'s selection. */
+export const IssuePlaybookStartOnSendInput = Schema.Struct({
+  playbook: TrimmedNonEmptyString,
+  entry: IssueBoardEntry,
+  threadId: ThreadId,
+});
+export type IssuePlaybookStartOnSendInput = typeof IssuePlaybookStartOnSendInput.Type;

@@ -145,6 +145,8 @@ const RPC_AGGREGATES = {
   [WS_METHODS.issuesSubscribeBoard]: "issues",
   [WS_METHODS.issuesSetBoardEnabled]: "issues",
   [WS_METHODS.issuesStartPlaybook]: "issues",
+  [WS_METHODS.issuesPreparePlaybookDraft]: "issues",
+  [WS_METHODS.issuesStartPlaybookOnSend]: "issues",
   [WS_METHODS.issuesDetail]: "issues",
   [WS_METHODS.issuesComments]: "issues",
   [WS_METHODS.issuesTemplates]: "issues",

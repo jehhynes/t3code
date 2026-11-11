@@ -190,6 +190,18 @@ export function createIssueEnvironmentAtoms<R, E>(
       scheduler: commandScheduler,
       onSettled: readOlderServersAgain,
     }),
+    /** What a draft for a waiting issue holds before I send it. */
+    preparePlaybookDraft: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:prepare-playbook-draft",
+      tag: WS_METHODS.issuesPreparePlaybookDraft,
+      scheduler: commandScheduler,
+    }),
+    /** My next message on the thread starts the issue; the server pushes the boards then. */
+    startPlaybookOnSend: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:issues:start-playbook-on-send",
+      tag: WS_METHODS.issuesStartPlaybookOnSend,
+      scheduler: commandScheduler,
+    }),
     /**
      * A continuation of the listing, run as a command rather than read as a query: a page is
      * asked for once and laid over the rows held, and a refresh of the first page forgets it.

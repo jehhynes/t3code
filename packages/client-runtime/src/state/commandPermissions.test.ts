@@ -234,6 +234,8 @@ describe("command permissions", () => {
     WS_METHODS.scheduledTasksDelete,
     ORCHESTRATION_V2_WS_METHODS.stopWorkflow,
     WS_METHODS.issuesStartPlaybook,
+    WS_METHODS.issuesPreparePlaybookDraft,
+    WS_METHODS.issuesStartPlaybookOnSend,
   ])("uses the target grant for both availability and execution of %s", (method) =>
     Effect.scoped(
       Effect.gen(function* () {
