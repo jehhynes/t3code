@@ -103,6 +103,8 @@ import { useDebouncedValue } from "~/state/queries";
 import { primaryServerKeybindingsAtom } from "~/state/server";
 
 export interface IssuesSearch extends IssueListPreferences {
+  // Fork-only (jehhynes/t3code#107): preserve host in the selection URL, as Pull requests does.
+  readonly selectedHost?: string;
   readonly selectedEnvironmentId?: EnvironmentId;
   readonly selectedProjectId?: ProjectId;
   readonly tracker?: string;
@@ -156,6 +158,7 @@ export const Route = createFileRoute("/_chat/issues")({
       raw.who === "assigned" || raw.who === "authored" || raw.who === "mentioned" ? raw.who : "all",
     status: raw.status === "closed" || raw.status === "all" ? raw.status : "open",
     ...present("host", bounded(raw.host)),
+    selectedHost: bounded(raw.selectedHost) ?? "",
     // Always an own key: the router lays this over the parent route's unvalidated search.
     q: bounded(raw.q),
     ...present<"selectedEnvironmentId", EnvironmentId>(
@@ -416,6 +419,7 @@ function IssuesRoute() {
             ? { selectedEnvironmentId: next.selectedEnvironmentId }
             : {}),
           ...(next.selectedProjectId ? { selectedProjectId: next.selectedProjectId } : {}),
+          ...(next.selectedHost ? { selectedHost: next.selectedHost } : {}),
           ...(next.tracker ? { tracker: next.tracker } : {}),
           ...(next.scope ? { scope: next.scope } : {}),
           ...(next.key ? { key: next.key } : {}),
@@ -426,6 +430,7 @@ function IssuesRoute() {
   const clearedSelection = {
     selectedEnvironmentId: undefined,
     selectedProjectId: undefined,
+    selectedHost: undefined,
     tracker: undefined,
     scope: undefined,
     key: undefined,
@@ -464,6 +469,7 @@ function IssuesRoute() {
         ? {
             selectedEnvironmentId: surface.environmentId as EnvironmentId | undefined,
             selectedProjectId: surface.projectId as ProjectId,
+            selectedHost: surface.host,
             tracker: surface.tracker,
             scope: surface.scope,
             key: surface.key,
@@ -477,6 +483,7 @@ function IssuesRoute() {
     updateSearch({
       selectedEnvironmentId: entry.environmentId,
       selectedProjectId: entry.projectId,
+      selectedHost: entry.host,
       tracker: entry.tracker,
       scope: entry.scope,
       key: entry.key,
@@ -499,6 +506,7 @@ function IssuesRoute() {
         ? {}
         : { environmentId: search.selectedEnvironmentId }),
       projectId: search.selectedProjectId,
+      ...(search.selectedHost ? { host: search.selectedHost } : {}),
       tracker: search.tracker,
       scope: search.scope,
       key: search.key,
@@ -509,6 +517,7 @@ function IssuesRoute() {
     search.scope,
     search.key,
     search.selectedProjectId,
+    search.selectedHost,
     search.selectedEnvironmentId,
   ]);
 
