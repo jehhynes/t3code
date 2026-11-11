@@ -95,4 +95,38 @@ export const cases = [
       body: "The dashboard numbers seem to lag. How often are reports refreshed?",
     }),
   },
+  {
+    id: "returning-handled",
+    source:
+      "jehhynes/t3code#100: a returning issue whose old comments ask for work an earlier thread handled, and whose newer comment asks something else. Claude Haiku chose fix in 3 of 3 samples without the earlier-work line, and in 3 of 6 on its first wording, which now names the issue's text and comments as background.",
+    expected: "answer",
+    issue: issue({
+      key: "107",
+      title: "Export crashes on large reports",
+      body: "Exporting a report with more than 5,000 rows shows a blank screen. The console says `RangeError: Maximum call stack size exceeded`.",
+      comments: [
+        "Same crash here with 8,000 rows, it is blocking our month-end close.",
+        "Still crashing for me as well, please fix soon.",
+        "Thanks, that works now. Can I schedule the export to run every Monday morning?",
+      ],
+    }),
+    // The first two comments came before the earlier thread's first turn; the third after it.
+    earlier: { at: "2026-11-02T12:00:00.000Z", nothingNew: false },
+  },
+  {
+    id: "returning-new-failure",
+    source:
+      "jehhynes/t3code#100 control: a returning issue whose newer comment asks for other work than its handled question",
+    expected: "fix",
+    issue: issue({
+      key: "108",
+      title: "Can reports be exported as CSV?",
+      body: "Is there a way to download a report's rows as a CSV file?",
+      comments: [
+        "Found it under the Export menu, thanks.",
+        "Since today's update, clicking Export shows a blank screen and the console says `TypeError: rows is undefined`.",
+      ],
+    }),
+    earlier: { at: "2026-11-01T12:00:00.000Z", nothingNew: false },
+  },
 ];

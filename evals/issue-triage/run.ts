@@ -79,6 +79,7 @@ await Effect.runPromise(
         issue: fixture.issue,
         now: "2026-11-11T12:00:00.000Z",
         frameId: "a1b2c3d4e5f6",
+        ...("earlier" in fixture ? { earlier: fixture.earlier } : {}),
       });
       for (let sample = 1; sample <= samples; sample++) {
         const answer = yield* service
