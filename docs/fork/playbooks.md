@@ -88,9 +88,15 @@ The prompt can name these fields of the issue:
 | `{{issue.labels}}`     | The label names, separated by commas       |
 | `{{issue.assignees}}`  | The assignees' logins, separated by commas |
 
-Each value is put into the prompt between tags that mark it as copied from the issue, with a note
-asking the agent to treat it as untrusted data, because anyone who can edit the issue writes it. A
-field with no value, such as an issue with no labels, is left empty.
+The number, URL and repository go into the prompt as written, so `/sb-plan {{issue.number}}`
+sends `/sb-plan 42`, when each has GitHub's form: digits,
+`https://github.com/<owner>/<name>/issues/<number>` for the issue's own repository and number,
+and `<owner>/<name>`. In that form they hold only an identifier's characters, with no spaces or
+line breaks. The title, status, labels and assignees, and a number, URL or repository in any
+other form, go in between tags that mark them as copied from the issue, because anyone who can
+edit the issue or the board writes them; the prompt then ends with a note asking the agent to
+treat that text as untrusted data. A field with no value, such as an issue with no labels, is
+left empty.
 
 ## Start an issue
 

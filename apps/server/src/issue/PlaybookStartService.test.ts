@@ -634,9 +634,7 @@ describe("PlaybookStartService.start", () => {
         creationSource: "web",
       });
       expect(sent[0]).not.toHaveProperty("modelSelection");
-      expect(sent[0]?.text).toMatch(
-        /^Look at <issue-data-(\w+)>https:\/\/github\.com\/acme\/web\/issues\/6<\/issue-data-\1>\.[^]*untrusted data\.$/,
-      );
+      expect(sent[0]?.text).toBe("Look at https://github.com/acme/web/issues/6.");
       expect(stored?.startedBy).toBe(sent[0]?.commandId);
     }),
   );
@@ -953,7 +951,7 @@ describe("PlaybookStartService.prepareDraft", () => {
     {
       name: "the project's defaults for a playbook that names none",
       input: { playbook: "plain" },
-      prompt: /^Look at <issue-data-/,
+      prompt: "Look at https://github.com/acme/web/issues/6.",
       draft: {
         modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
         runtimeMode: "auto-accept-edits",
@@ -963,7 +961,7 @@ describe("PlaybookStartService.prepareDraft", () => {
     {
       name: "another playbook's prompt and settings",
       input: { playbook: "plain", use: "isolated" },
-      prompt: /^Fix <issue-data-/,
+      prompt: "Fix https://github.com/acme/web/issues/6.",
       draft: {
         modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
         workspace: { type: "worktree", baseRef: "origin/trunk", startFromOrigin: false },
@@ -972,7 +970,7 @@ describe("PlaybookStartService.prepareDraft", () => {
     {
       name: "the worktree the issue already has",
       input: { playbook: "plain", issueWorktree, listedWorktrees: [issueWorktree.worktreePath] },
-      prompt: /^Look at <issue-data-/,
+      prompt: "Look at https://github.com/acme/web/issues/6.",
       draft: {
         workspace: {
           type: "existing_worktree",
@@ -985,7 +983,7 @@ describe("PlaybookStartService.prepareDraft", () => {
     Effect.gen(function* () {
       const result = yield* prepare(input);
       expect(result).toMatchObject({ _tag: "Success", success: draft });
-      expect(result._tag === "Success" && result.success.prompt).toMatch(prompt);
+      expect(result._tag === "Success" && result.success.prompt).toBe(prompt);
     }),
   );
 
@@ -995,7 +993,9 @@ describe("PlaybookStartService.prepareDraft", () => {
 
       expect(result).toMatchObject({ _tag: "Success", success: { threadId: openThreadId } });
       expect(result._tag === "Success" && result.success).not.toHaveProperty("workspace");
-      expect(result._tag === "Success" && result.success.prompt).toMatch(/^Look at <issue-data-/);
+      expect(result._tag === "Success" && result.success.prompt).toBe(
+        "Look at https://github.com/acme/web/issues/6.",
+      );
     }),
   );
 

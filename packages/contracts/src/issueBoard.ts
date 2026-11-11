@@ -144,7 +144,7 @@ export const IssuePlaybookDraftInput = Schema.Struct({
 });
 export type IssuePlaybookDraftInput = typeof IssuePlaybookDraftInput.Type;
 
-/** The prompt is rendered with the issue's fields, each framed as untrusted data. */
+/** The prompt is rendered with the issue's fields, its free text framed as untrusted data. */
 export const IssuePlaybookDraft = Schema.Union([
   /** The issue's open thread takes the prompt in its composer and keeps its own settings. */
   Schema.Struct({ prompt: Schema.String, threadId: ThreadId }),
