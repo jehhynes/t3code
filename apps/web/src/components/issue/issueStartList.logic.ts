@@ -4,6 +4,11 @@ import type { EnvironmentId, IssueBoardEntry, IssueBoardResult } from "@t3tools/
 export interface WaitingIssue {
   readonly environmentId: EnvironmentId;
   readonly entry: IssueBoardEntry & { readonly playbook: string };
+  /**
+   * The playbooks its environment's `playbooks.json` lists, in order; absent from a server that
+   * cannot start with guidance.
+   */
+  readonly playbooks: ReadonlyArray<string> | undefined;
 }
 
 export function waitingIssueKey(issue: WaitingIssue): string {
@@ -31,7 +36,7 @@ export function waitingIssues(
               : entry.playbook
             : entry.waitingPlaybook;
         if (playbook === null) continue;
-        const issue = { environmentId, entry: { ...entry, playbook } };
+        const issue = { environmentId, entry: { ...entry, playbook }, playbooks: answer.playbooks };
         const key = waitingIssueKey(issue);
         if (!waiting.has(key)) waiting.set(key, issue);
       }
@@ -40,4 +45,13 @@ export function waitingIssues(
   return [...waiting.values()].toSorted(
     (a, b) => Date.parse(b.entry.updatedAt) - Date.parse(a.entry.updatedAt),
   );
+}
+
+/** The playbooks a guided start can use, in file order, always with the issue's own among them. */
+export function playbookChoices(issue: WaitingIssue): ReadonlyArray<string> {
+  const playbooks = issue.playbooks ?? [];
+  const own = issue.entry.playbook.toLowerCase();
+  return playbooks.some((name) => name.toLowerCase() === own)
+    ? playbooks
+    : [issue.entry.playbook, ...playbooks];
 }

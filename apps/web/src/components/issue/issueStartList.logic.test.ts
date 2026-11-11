@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { waitingIssues } from "./issueStartList.logic";
+import { playbookChoices, waitingIssues } from "./issueStartList.logic";
 
 const env = "env-1" as EnvironmentId;
 
@@ -99,5 +99,17 @@ describe("waitingIssues", () => {
       ["4", "ship"],
       ["1", "develop"],
     ]);
+  });
+});
+
+describe("playbookChoices", () => {
+  it.each([
+    { own: "Ship", playbooks: ["develop", "ship", "other"], choices: ["develop", "ship", "other"] },
+    // The issue's own playbook has since gained a mistake, so the file no longer lists it.
+    { own: "ship", playbooks: ["develop", "other"], choices: ["ship", "develop", "other"] },
+  ])("lists $playbooks for an issue of $own as $choices", ({ own, playbooks, choices }) => {
+    expect(
+      playbookChoices({ environmentId: env, entry: { ...entry("1"), playbook: own }, playbooks }),
+    ).toEqual(choices);
   });
 });

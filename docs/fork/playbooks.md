@@ -113,6 +113,15 @@ the thread keeps its own model and modes. Otherwise Start launches the playbook'
 issue's project, in the project's own folder, linked to the issue. Either way the issue leaves the
 list. An issue whose repository has no T3 Code project shows that instead of Start.
 
+To tell one start what to do differently, open the arrow beside Start or Retry and choose **Start
+with guidance…**. Write your guidance, and when `playbooks.json` has more than one playbook you can
+choose another one for this start; the issue's own is selected. Start then runs as Start does, with
+the chosen playbook's prompt and settings, and your guidance added after the prompt and a blank
+line exactly as you wrote it: `{{issue.…}}` fields in it are not filled in. Another playbook
+changes only this start: the issue stays in its own selection, so it does not wait or start there
+again. The guidance is not kept: when the start fails, Retry runs the issue's own playbook without
+it.
+
 When a start fails, where it shows depends on how far it got:
 
 - **Before any thread exists**, the issue stays under **Waiting to start** with the cause on its

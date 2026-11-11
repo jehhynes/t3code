@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoardResult } from "@t3tools/contracts";
-import { PlayIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronDownIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -13,9 +13,12 @@ import { issueEnvironment } from "~/state/issues";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { Button } from "../ui/button";
+import { Group, GroupSeparator } from "../ui/group";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { PULL_REQUEST_ROW_CLASS } from "../pullRequest/PullRequestListRow";
 import { BoardRowLines } from "./IssueBoardSection";
+import { type GuidedStart, IssueStartGuidanceDialog } from "./IssueStartGuidanceDialog";
 import { type WaitingIssue, waitingIssueKey, waitingIssues } from "./issueStartList.logic";
 
 const ROW_CLASS = cn(PULL_REQUEST_ROW_CLASS, "@container/issue-row-meta px-3 py-2.5");
@@ -25,12 +28,15 @@ function WaitingRow({
   environmentLabel,
   starting,
   onStart,
+  onGuidedStart,
 }: {
   issue: WaitingIssue;
   environmentLabel: string | undefined;
   starting: boolean;
   onStart: () => void;
+  onGuidedStart: (start: GuidedStart) => void;
 }) {
+  const [guiding, setGuiding] = useState(false);
   const canStart = useAtomValue(issueEnvironment.startPlaybook.permissionAtom(issue.environmentId));
   const { entry } = issue;
   const failure = entry.startFailure ?? null;
@@ -43,19 +49,53 @@ function WaitingRow({
           No T3 Code project for {entry.scope}
         </span>
       ) : (
-        <Button
-          variant="outline"
-          size="xs"
-          disabled={starting || !canStart}
-          title={
-            canStart ? `${action} playbook ${entry.playbook}` : "You cannot start threads here."
-          }
-          onClick={onStart}
-        >
-          {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
-          {action}
-        </Button>
+        <Group aria-label={`Start ${entry.displayKey}`}>
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={starting || !canStart}
+            title={
+              canStart ? `${action} playbook ${entry.playbook}` : "You cannot start threads here."
+            }
+            onClick={onStart}
+          >
+            {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
+            {action}
+          </Button>
+          {issue.playbooks === undefined ? null : (
+            <>
+              <GroupSeparator />
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={starting || !canStart}
+                      aria-label="More ways to start"
+                    />
+                  }
+                >
+                  <ChevronDownIcon aria-hidden />
+                </MenuTrigger>
+                <MenuPopup align="end">
+                  <MenuItem onClick={() => setGuiding(true)}>Start with guidance…</MenuItem>
+                </MenuPopup>
+              </Menu>
+            </>
+          )}
+        </Group>
       )}
+      {guiding ? (
+        <IssueStartGuidanceDialog
+          issue={issue}
+          onOpenChange={setGuiding}
+          onStart={(start) => {
+            setGuiding(false);
+            onGuidedStart(start);
+          }}
+        />
+      ) : null}
       {environmentLabel ? (
         <span className="shrink-0 text-xs text-muted-foreground">{environmentLabel}</span>
       ) : null}
@@ -101,12 +141,12 @@ export function IssueStartList({
   );
   if (issues.length === 0) return null;
 
-  const start = async (issue: WaitingIssue) => {
+  const start = async (issue: WaitingIssue, guided: GuidedStart = {}) => {
     const key = waitingIssueKey(issue);
     setStarting((current) => new Set([...current, key]));
     const result = await startPlaybook({
       environmentId: issue.environmentId,
-      input: { playbook: issue.entry.playbook, entry: issue.entry },
+      input: { playbook: issue.entry.playbook, entry: issue.entry, ...guided },
     });
     setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
     if (result._tag === "Success") {
@@ -121,7 +161,7 @@ export function IssueStartList({
       const failure = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: `Could not start ${issue.entry.displayKey} with playbook ${issue.entry.playbook}`,
+        title: `Could not start ${issue.entry.displayKey} with playbook ${guided.startWith ?? issue.entry.playbook}`,
         description:
           typeof failure === "object" && failure !== null && "detail" in failure
             ? String(failure.detail)
@@ -146,6 +186,7 @@ export function IssueStartList({
               environmentLabel={environmentLabels?.get(issue.environmentId)}
               starting={starting.has(key)}
               onStart={() => void start(issue)}
+              onGuidedStart={(guided) => void start(issue, guided)}
             />
           );
         })}
