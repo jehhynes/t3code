@@ -2,6 +2,7 @@
 // (jehhynes/t3code#10).
 import {
   DEFAULT_GITHUB_BOARD_READ_INTERVAL,
+  type GitHubBoardConfig,
   heldByBlockers,
   type IssueBoardEntry,
   type IssueBoardResult,
@@ -9,8 +10,10 @@ import {
 } from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
@@ -121,27 +124,38 @@ const run = Effect.gen(function* () {
     Duration.isPositive(setting)
       ? Duration.max(setting, MIN_BOARD_READ_INTERVAL)
       : DEFAULT_GITHUB_BOARD_READ_INTERVAL;
-  // Subscribed before the interval is read, so a change in between is not missed; a new interval
-  // ends the old wait.
-  const waitForNextRead = Effect.scoped(
-    Effect.gen(function* () {
-      const changes = yield* settings.subscribeChanges;
-      const wait = effectiveInterval(
-        yield* settings.getSettings.pipe(
-          Effect.map((current) => current.githubBoardReadInterval),
-          Effect.orElseSucceed(() => DEFAULT_GITHUB_BOARD_READ_INTERVAL),
-        ),
-      );
-      yield* changes.pipe(
-        Stream.filter(
-          (current) => !Duration.equals(effectiveInterval(current.githubBoardReadInterval), wait),
-        ),
-        Stream.take(1),
-        Stream.runDrain,
-        Effect.timeoutOrElse({ duration: wait, orElse: () => Effect.void }),
-      );
-    }),
+  const readBoardList = settings.getSettings.pipe(
+    Effect.map((current) => current.githubBoards),
+    Effect.orElseSucceed(() => undefined),
   );
+  // Subscribed before the settings are read, so a change in between is not missed; a new interval
+  // ends the old wait, and so does a board list other than the one the last read began with
+  // (jehhynes/t3code#85), so an added or removed board reaches the Issues page at once.
+  const waitForNextRead = Effect.fn("PlaybookAutoStart.waitForNextRead")(function* (
+    readWith: ReadonlyArray<GitHubBoardConfig> | undefined,
+  ) {
+    const changes = yield* settings.subscribeChanges;
+    const boardsChanged = (next: { readonly githubBoards: ReadonlyArray<GitHubBoardConfig> }) =>
+      readWith !== undefined && !Equal.equals(next.githubBoards, readWith);
+    const current = yield* settings.getSettings.pipe(Effect.option);
+    if (Option.isSome(current) && boardsChanged(current.value)) return;
+    const wait = effectiveInterval(
+      Option.match(current, {
+        onNone: () => DEFAULT_GITHUB_BOARD_READ_INTERVAL,
+        onSome: (value) => value.githubBoardReadInterval,
+      }),
+    );
+    yield* changes.pipe(
+      Stream.filter(
+        (next) =>
+          !Duration.equals(effectiveInterval(next.githubBoardReadInterval), wait) ||
+          boardsChanged(next),
+      ),
+      Stream.take(1),
+      Stream.runDrain,
+      Effect.timeoutOrElse({ duration: wait, orElse: () => Effect.void }),
+    );
+  }, Effect.scoped);
 
   // Waits for startup recovery, as scheduled work does, so it never races a recovering turn.
   yield* forkParked(
@@ -151,7 +165,14 @@ const run = Effect.gen(function* () {
   );
   yield* forkParked(
     Effect.forever(
-      issues.board.pipe(Effect.ignoreCause({ log: true }), Effect.andThen(waitForNextRead)),
+      readBoardList.pipe(
+        Effect.flatMap((readWith) =>
+          issues.board.pipe(
+            Effect.ignoreCause({ log: true }),
+            Effect.andThen(waitForNextRead(readWith)),
+          ),
+        ),
+      ),
     ),
   );
   // Fork-only (jehhynes/t3code#76): a freed slot starts what waits for one without a board read.

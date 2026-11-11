@@ -12,6 +12,7 @@ import {
   type ServerSettings as ServerSettingsValue,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -194,7 +195,9 @@ interface Harness {
   readonly attempts: Queue.Queue<string>;
   readonly started: Queue.Queue<string>;
   readonly publish: (value: IssueBoardResult) => Effect.Effect<void>;
-  readonly setInterval: (interval: Duration.Duration) => Effect.Effect<void>;
+  readonly setSettings: (change: Partial<ServerSettingsValue>) => Effect.Effect<void>;
+  /** Holds each board read until the returned effect lets it go. */
+  readonly holdReads: Effect.Effect<Effect.Effect<void>>;
   /** A thread's turn ends: one more slot is free, and the starter is told. */
   readonly freeSlot: Effect.Effect<void>;
 }
@@ -222,7 +225,9 @@ function harness<A, E>(
     const latest = yield* SubscriptionRef.make<IssueBoardResult | null>(null);
     const settings = yield* Ref.make({
       githubBoardReadInterval: DEFAULT_GITHUB_BOARD_READ_INTERVAL,
+      githubBoards: [] as ServerSettingsValue["githubBoards"],
     } as ServerSettingsValue);
+    const gate = yield* Ref.make<Deferred.Deferred<void> | null>(null);
     const changes = yield* PubSub.unbounded<ServerSettingsValue>();
     const publish = (value: IssueBoardResult) => SubscriptionRef.set(latest, value);
     const free = yield* Ref.make(input.slots ?? Number.POSITIVE_INFINITY);
@@ -246,11 +251,16 @@ function harness<A, E>(
             attempts,
             started,
             publish,
-            setInterval: (interval) =>
-              Ref.updateAndGet(settings, (current) => ({
-                ...current,
-                githubBoardReadInterval: interval,
-              })).pipe(Effect.flatMap((next) => PubSub.publish(changes, next))),
+            setSettings: (change) =>
+              Ref.updateAndGet(settings, (current) => ({ ...current, ...change })).pipe(
+                Effect.flatMap((next) => PubSub.publish(changes, next)),
+              ),
+            holdReads: Deferred.make<void>().pipe(
+              Effect.tap((held) => Ref.set(gate, held)),
+              Effect.map((held) =>
+                Ref.set(gate, null).pipe(Effect.andThen(Deferred.succeed(held, undefined))),
+              ),
+            ),
             freeSlot: Ref.update(free, (slots) => slots + 1).pipe(
               Effect.andThen(Queue.offer(freed, undefined)),
             ),
@@ -262,6 +272,8 @@ function harness<A, E>(
         Layer.mergeAll(
           Layer.mock(IssueService.IssueService)({
             board: Queue.offer(reads, undefined).pipe(
+              Effect.andThen(Ref.get(gate)),
+              Effect.flatMap((held) => (held === null ? Effect.void : Deferred.await(held))),
               Effect.andThen(publish(result(input.listed))),
               Effect.as(result(input.listed)),
             ),
@@ -321,7 +333,7 @@ describe("PlaybookAutoStart", () => {
     () =>
       harness(
         { listed: [entry("1")], recorded: ["1", "2"] },
-        ({ reads, attempts, started, publish, setInterval }) =>
+        ({ reads, attempts, started, publish, setSettings, holdReads }) =>
           Effect.gen(function* () {
             yield* Queue.take(reads);
             expect(yield* Queue.take(started)).toBe("1");
@@ -330,17 +342,37 @@ describe("PlaybookAutoStart", () => {
             yield* Queue.take(reads);
 
             // A shorter interval applies without a restart: two reads within two of its minutes.
-            yield* setInterval(Duration.minutes(1));
+            yield* setSettings({ githubBoardReadInterval: Duration.minutes(1) });
             yield* TestClock.adjust(Duration.minutes(1));
             yield* Queue.take(reads);
             yield* TestClock.adjust(Duration.minutes(1));
             yield* Queue.take(reads);
 
             // 5 meant as minutes is read as 5 ms: the server waits at least 10 seconds.
-            yield* setInterval(Duration.millis(5));
+            yield* setSettings({ githubBoardReadInterval: Duration.millis(5) });
             yield* TestClock.adjust(Duration.seconds(10));
             yield* Queue.take(reads);
             yield* Queue.takeAll(reads);
+            yield* TestClock.adjust(Duration.seconds(9));
+            expect(yield* Queue.size(reads)).toBe(0);
+            yield* TestClock.adjust(Duration.seconds(1));
+            yield* Queue.take(reads);
+
+            // Fork-only (jehhynes/t3code#85): a change to the boards reads them at once, even one
+            // made while a read runs; a change that leaves them and the interval alone does not.
+            const board = { owner: "acme", number: 1, statusField: "Status" };
+            yield* setSettings({ maxRunningIssueThreads: 3 });
+            yield* TestClock.adjust(Duration.seconds(9));
+            expect(yield* Queue.size(reads)).toBe(0);
+            yield* setSettings({ githubBoards: [board] });
+            yield* Queue.take(reads);
+            const release = yield* holdReads;
+            yield* TestClock.adjust(Duration.seconds(10));
+            yield* Queue.take(reads);
+            yield* setSettings({ githubBoards: [board, { ...board, number: 2 }] });
+            yield* release;
+            yield* Queue.take(reads);
+            yield* setSettings({ githubBoards: [{ ...board }, { ...board, number: 2 }] });
             yield* TestClock.adjust(Duration.seconds(9));
             expect(yield* Queue.size(reads)).toBe(0);
             yield* TestClock.adjust(Duration.seconds(1));
