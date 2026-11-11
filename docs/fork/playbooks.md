@@ -113,11 +113,25 @@ the thread keeps its own model and modes. Otherwise Start launches the playbook'
 issue's project, in the project's own folder, linked to the issue. Either way the issue leaves the
 list. An issue whose repository has no T3 Code project shows that instead of Start.
 
-When a start fails, the issue stays under **Waiting to start** with the cause on its row, and its
-button reads **Retry**, which starts it as Start does. Every client shows the cause, also after a
-reload or a restart of T3 Code, until a start succeeds or the issue leaves the selection it failed
-in; an issue that enters a selection again shows none. Only the last failure is kept. A thread
-that starts and then fails shows its failure in the thread, as any thread does.
+When a start fails, where it shows depends on how far it got:
+
+- **Before any thread exists**, the issue stays under **Waiting to start** with the cause on its
+  row, and its button reads **Retry**, which starts it as Start does. Every client shows the cause,
+  also after a reload or a restart of T3 Code, until a start succeeds or the issue leaves the
+  selection it failed in; an issue that enters a selection again shows none. Only the last failure
+  is kept.
+- **Once its thread exists but before the prompt reached it**, the thread is empty. It is linked to
+  the issue, and the issue waits with the cause and **Retry**, which sends the prompt to that thread
+  rather than starting another.
+- **Once the prompt reached its thread**, the issue counts as started, linked to that thread, and
+  leaves the list; the thread shows the failure, with its own Retry where the thread can retry. A
+  prompt sent to the issue's open thread is not sent again, even when T3 Code could not read what
+  happened next. A thread that starts and then fails, such as on a provider error, shows its
+  failure in the thread, as any thread does.
+- **When its thread could not be linked to the issue**, the issue still counts as started; find the
+  thread in the sidebar under the issue's number and title.
+
+A Start you pressed that fails once its thread exists tells you so and names the thread.
 
 Issues enter and leave selections when T3 Code reads the boards, and only while it can tell: a
 board that is off or cannot be read keeps its issues as they were, and so does every issue while
@@ -135,8 +149,8 @@ with the Issues page closed and no client connected.
 
 - Each entry starts once. After its thread starts, the issue is not started again while it stays
   in the selection, also after you settle the thread or restart T3 Code.
-- A start that fails leaves the issue under **Waiting to start** with its cause and **Retry**, as a
-  failed Start does. T3 Code does not try it again by itself.
+- A start that fails shows where a failed Start would, as
+  [When a start fails](#start-an-issue) describes. T3 Code does not try it again by itself.
 - Nothing starts by itself while `playbooks.json` has a mistake or your GitHub account cannot be
   read, nor from a board that is off or could not be read. Once you fix it, the issues that entered
   meanwhile start once.

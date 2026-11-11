@@ -4,11 +4,14 @@ import {
   CommandId,
   IssueTrackerKind,
   ProjectId,
+  RunId,
   ThreadId,
   type IssueBoardEntry,
   type IssueBoardResult,
   type IssueOperationError,
   type IssuePlaybookStartResult,
+  type OrchestrationV2ServerCommand,
+  type OrchestrationV2ThreadShell,
   type Project,
 } from "@t3tools/contracts";
 import * as SecureRandom from "effect/crypto/SecureRandom";
@@ -17,10 +20,12 @@ import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import type * as Result from "effect/Result";
 
 import * as ServerConfig from "../config.ts";
+import * as CommandReceiptStore from "../orchestration-v2/CommandReceiptStore.ts";
 import { OrchestratorCommandRejectedError } from "../orchestration-v2/Orchestrator.ts";
 import * as ThreadIssueService from "../orchestration-v2/ThreadIssueService.ts";
 import * as ThreadLaunchService from "../orchestration-v2/ThreadLaunchService.ts";
@@ -36,6 +41,7 @@ import * as PlaybookStartService from "./PlaybookStartService.ts";
 
 const projectId = ProjectId.make("web");
 const threadId = ThreadId.make("thread-1");
+const preparingRunId = RunId.make("run-1");
 const openThreadId = ThreadId.make("thread-open");
 // The open thread may have moved to another project since it started.
 const openProjectId = ProjectId.make("elsewhere");
@@ -83,6 +89,14 @@ interface Options {
   readonly openIssueKeys?: ReadonlyArray<string>;
   readonly launch?: ThreadLaunchService.ThreadLaunchService["Service"]["launch"];
   readonly link?: ThreadIssueService.ThreadIssueService["Service"]["link"];
+  readonly send?: ThreadManagement.ThreadManagementService["Service"]["sendToThread"];
+  /** What the start's commands committed, as their receipts tell it. */
+  readonly committed?: ReadonlyArray<"thread.create" | "initial-message" | "message.dispatch">;
+  /** Whether reading those receipts fails. */
+  readonly receiptsFail?: boolean;
+  readonly startFailure?: string;
+  /** Whether the start's commands to the thread fail, as failing its run does. */
+  readonly dispatchFails?: boolean;
   /** `playbooks.json` as written; the playbooks above when left out. */
   readonly playbooksFile?: string;
   /** Whether the server starts it by itself. */
@@ -93,6 +107,18 @@ interface Options {
 
 const issueKey = "github github.com acme/web 6";
 
+const launchError = (
+  operation: ThreadLaunchService.ThreadLaunchError["operation"],
+  failedThreadId?: ThreadId,
+) =>
+  new ThreadLaunchService.ThreadLaunchError({
+    operation,
+    commandId: CommandId.make("c"),
+    projectId,
+    ...(failedThreadId === undefined ? {} : { threadId: failedThreadId }),
+    cause: new Error("boom"),
+  });
+
 function harness<A, E>(
   input: Options,
   body: (context: {
@@ -102,6 +128,7 @@ function harness<A, E>(
     readonly launched: ReadonlyArray<ThreadLaunchService.ThreadLaunchInput>;
     readonly linked: ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>;
     readonly sent: ReadonlyArray<ThreadManagement.ThreadManagementSendInput>;
+    readonly dispatched: ReadonlyArray<OrchestrationV2ServerCommand>;
     /** How many times the board listing was published again. */
     readonly refreshed: () => number;
     /** The issue's entry as stored now. */
@@ -114,7 +141,20 @@ function harness<A, E>(
   const launched: Array<ThreadLaunchService.ThreadLaunchInput> = [];
   const linked: Array<ThreadIssueService.LinkThreadIssueInput> = [];
   const sent: Array<ThreadManagement.ThreadManagementSendInput> = [];
+  const dispatched: Array<OrchestrationV2ServerCommand> = [];
+  /** Threads now linked to the issue, which make it the issue's open thread. */
+  const linkedThreads: Array<ThreadId> = [];
   let refreshed = 0;
+  const receipt = (commandId: CommandId, threadId: ThreadId, commandType: string) =>
+    Option.some({
+      commandId,
+      threadId,
+      commandType,
+      acceptedAt: DateTime.makeUnsafe(0),
+      resultSequence: 1,
+      status: "accepted" as const,
+      error: null,
+    });
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-playbook-start-" });
@@ -133,7 +173,7 @@ function harness<A, E>(
           playbook: waitingWith ?? "develop",
           startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
           autoTried: false,
-          startFailure: null,
+          startFailure: input.startFailure ?? null,
         },
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
@@ -145,6 +185,7 @@ function harness<A, E>(
         launched,
         linked,
         sent,
+        dispatched,
         refreshed: () => refreshed,
         stored: store.list.pipe(Effect.map((rows) => rows.get(issueKey))),
       });
@@ -189,26 +230,85 @@ function harness<A, E>(
                 link: (link) =>
                   Effect.suspend(() => {
                     linked.push(link);
-                    return input.link === undefined
-                      ? Effect.succeed({ alreadyLinked: false })
-                      : input.link(link);
+                    return (
+                      input.link === undefined
+                        ? Effect.succeed({ alreadyLinked: false })
+                        : input.link(link)
+                    ).pipe(Effect.tap(() => Effect.sync(() => linkedThreads.push(link.threadId))));
                   }),
               }),
               Layer.mock(ThreadManagement.ThreadManagementService)({
                 sendToThread: (send) =>
-                  Effect.sync(() => {
+                  Effect.suspend(() => {
                     sent.push(send);
-                    return {} as ThreadManagement.ThreadManagementSendResult;
+                    return input.send === undefined
+                      ? Effect.succeed({} as ThreadManagement.ThreadManagementSendResult)
+                      : input.send(send);
+                  }),
+                getThreadShell: (id) =>
+                  Effect.succeed({ id, title: "Open thread" } as OrchestrationV2ThreadShell),
+                getThreadRecords: (_threadId, _fields, filter) =>
+                  Effect.succeed({
+                    messages: (filter?.messageIds ?? []).map((id) => ({
+                      id,
+                      runId: preparingRunId,
+                    })),
+                  } as never),
+                dispatch: (command) =>
+                  Effect.suspend(() => {
+                    dispatched.push(command);
+                    return input.dispatchFails === true
+                      ? Effect.fail(
+                          new OrchestratorCommandRejectedError({
+                            commandId: command.commandId,
+                            commandType: command.type,
+                          }),
+                        )
+                      : Effect.succeed(
+                          {} as Effect.Success<
+                            ReturnType<
+                              ThreadManagement.ThreadManagementService["Service"]["dispatch"]
+                            >
+                          >,
+                        );
                   }),
               }),
+              Layer.mock(CommandReceiptStore.CommandReceiptStoreV2)({
+                getByCommandId: (commandId) => {
+                  if (input.receiptsFail === true) {
+                    return Effect.fail(
+                      new CommandReceiptStore.CommandReceiptStoreReadError({ commandId }),
+                    );
+                  }
+                  const committed = input.committed ?? [];
+                  if (commandId.endsWith(":initial-message")) {
+                    return Effect.succeed(
+                      committed.includes("initial-message")
+                        ? receipt(commandId, threadId, "message.dispatch")
+                        : Option.none(),
+                    );
+                  }
+                  return Effect.succeed(
+                    committed.includes("thread.create")
+                      ? receipt(commandId, threadId, "thread.create")
+                      : committed.includes("message.dispatch")
+                        ? receipt(commandId, openThreadId, "message.dispatch")
+                        : Option.none(),
+                  );
+                },
+              }),
               Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
-                listOpen: Effect.succeed(
-                  new Map(
-                    (input.openIssueKeys ?? []).map((key) => [
-                      key,
-                      { threadId: openThreadId, projectId: openProjectId },
+                listOpen: Effect.sync(
+                  () =>
+                    new Map([
+                      ...(input.openIssueKeys ?? []).map(
+                        (key) =>
+                          [key, { threadId: openThreadId, projectId: openProjectId }] as const,
+                      ),
+                      ...linkedThreads.map(
+                        (linkedId) => [issueKey, { threadId: linkedId, projectId }] as const,
+                      ),
                     ]),
-                  ),
                 ),
               }),
               IssuePlaybookEntries.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
@@ -346,25 +446,52 @@ describe("PlaybookStartService.start", () => {
       },
       detail: "The thread could not be started; it failed during dispatch-message.",
     },
+    {
+      name: "a launch error that names a thread never created",
+      input: {
+        playbook: "develop",
+        launch: () => Effect.fail(launchError("create-thread", threadId)),
+      },
+      detail: "The thread could not be started; it failed during create-thread.",
+    },
+    {
+      name: "a launch error whose receipts cannot be read",
+      input: {
+        playbook: "develop",
+        receiptsFail: true,
+        launch: () => Effect.fail(launchError("dispatch-message", threadId)),
+      },
+      detail: "The thread could not be started; it failed during dispatch-message.",
+    },
+    {
+      name: "a send to the open thread that fails before its prompt was accepted",
+      input: {
+        playbook: "develop",
+        openIssueKeys: [issueKey],
+        send: () => Effect.fail(new Error("closed") as never),
+      },
+      detail: "The prompt could not be sent to the issue's open thread.",
+    },
   ])(
     "refuses $name with its cause, links nothing and leaves the entry as it was",
     ({ input, detail }) =>
       Effect.gen(function* () {
         const { result, linked, sent, stored, refreshed } = yield* start(input);
+        const claimed = "launch" in input || "send" in input;
 
         expect(result).toMatchObject({
           _tag: "Failure",
           failure: { operation: "startPlaybook", detail },
         });
         expect(linked).toEqual([]);
-        expect(sent).toEqual([]);
+        expect(sent).toHaveLength("send" in input ? 1 : 0);
         expect(stored?.startedBy).toBe(
           input.waitingWith === null ? "issue-playbook:earlier" : null,
         );
         // Only a start that claimed the entry keeps its cause on the issue.
-        expect(stored?.startFailure).toBe("launch" in input ? detail : null);
+        expect(stored?.startFailure).toBe(claimed ? detail : null);
         // Only a Start that claimed the entry changed what the listing shows.
-        expect(refreshed()).toBe("launch" in input ? 1 : 0);
+        expect(refreshed()).toBe(claimed ? 1 : 0);
       }),
   );
 
@@ -503,29 +630,167 @@ describe("PlaybookStartService.start", () => {
     }),
   );
 
-  it.effect("says so when the thread started but the link failed", () =>
+  it.effect.each([
+    { name: "Start", input: { playbook: "develop" } },
+    {
+      name: "a start by the server itself",
+      input: { playbook: "deploy", waitingWith: "deploy", auto: true },
+    },
+    {
+      name: "Start, with a run that cannot be failed,",
+      input: { playbook: "develop", dispatchFails: true },
+    },
+  ])("keeps the issue with its thread when $name fails after its prompt reached it", ({ input }) =>
+    harness(
+      {
+        ...input,
+        committed: ["thread.create", "initial-message"],
+        launch: () => Effect.fail(launchError("create-thread", threadId)),
+      },
+      ({ start: startPlaybook, launched, linked, dispatched, stored, refreshed }) =>
+        Effect.gen(function* () {
+          const result = yield* startPlaybook(input.playbook);
+
+          expect(result).toMatchObject({
+            _tag: "Failure",
+            failure: {
+              detail:
+                'Thread "#6 Start a thread" started, but its start failed during create-thread.',
+            },
+          });
+          expect((yield* stored)?.startedBy).toBe(launched[0]?.commandId);
+          expect(linked.map((link) => link.threadId)).toEqual([threadId]);
+          // The thread shows the failure on its run, with its own Retry.
+          expect(dispatched).toMatchObject([
+            { type: "prepared-run.fail", threadId, runId: preparingRunId },
+          ]);
+          expect(refreshed()).toBe(1);
+
+          expect(yield* startPlaybook(input.playbook)).toMatchObject({ _tag: "Failure" });
+          expect(launched).toHaveLength(1);
+        }),
+    ),
+  );
+
+  it.effect(
+    "links an empty thread, so Retry sends the prompt there and makes no second thread",
+    () =>
+      harness(
+        {
+          committed: ["thread.create"],
+          startFailure: "An earlier failure.",
+          // The launch's first read after its thread exists names no thread.
+          launch: () => Effect.fail(launchError("read-receipt")),
+        },
+        ({ start: startPlaybook, launched, linked, sent, dispatched, stored }) =>
+          Effect.gen(function* () {
+            const detail =
+              'Thread "#6 Start a thread" was created, but the prompt could not be sent to it; Retry sends it there.';
+            expect(yield* startPlaybook("develop")).toMatchObject({
+              _tag: "Failure",
+              failure: { detail },
+            });
+            expect(linked.map((link) => link.threadId)).toEqual([threadId]);
+            expect(dispatched).toEqual([]);
+            expect(yield* stored).toMatchObject({ startedBy: null, startFailure: detail });
+
+            expect(yield* startPlaybook("develop")).toMatchObject({
+              _tag: "Success",
+              success: { threadId },
+            });
+            expect(launched).toHaveLength(1);
+            expect(sent).toMatchObject([{ threadId }]);
+          }),
+      ),
+  );
+
+  it.effect.each([
+    {
+      name: "an empty thread that cannot be linked",
+      input: {
+        committed: ["thread.create"] as const,
+        launch: () => Effect.fail(launchError("dispatch-message", threadId)),
+      },
+      detail:
+        'Thread "#6 Start a thread" was created, but the prompt could not be sent to it, and it could not be linked to the issue.',
+    },
+    {
+      name: "a thread that started but cannot be linked",
+      input: { committed: ["thread.create", "initial-message"] as const },
+      detail: 'Thread "#6 Start a thread" started, but it could not be linked to the issue.',
+    },
+  ])("keeps the issue started, naming the thread, for $name", ({ input, detail }) =>
     Effect.gen(function* () {
       const failure = new OrchestratorCommandRejectedError({
         commandId: CommandId.make("link"),
         commandType: "thread.issue.link",
       });
       const { result, launched, stored } = yield* start({
+        ...input,
         playbook: "develop",
         link: () => Effect.fail(failure),
       });
 
-      expect(launched).toHaveLength(1);
-      expect(stored).toMatchObject({
-        startedBy: null,
-        startFailure: "The thread started but could not be linked to the issue.",
-      });
-      expect(result).toMatchObject({
-        _tag: "Failure",
-        failure: {
-          detail: "The thread started but could not be linked to the issue.",
-          cause: failure,
+      expect(result).toMatchObject({ _tag: "Failure", failure: { detail } });
+      expect(stored).toMatchObject({ startedBy: launched[0]?.commandId, startFailure: null });
+    }),
+  );
+
+  it.effect("does not send the prompt again when it reached the open thread", () =>
+    harness(
+      {
+        openIssueKeys: [issueKey],
+        committed: ["message.dispatch"],
+        send: () => Effect.fail(new Error("unreadable") as never),
+      },
+      ({ start: startPlaybook, sent, stored }) =>
+        Effect.gen(function* () {
+          expect(yield* startPlaybook("develop")).toMatchObject({
+            _tag: "Failure",
+            failure: {
+              detail: 'The prompt reached thread "Open thread", but its answer could not be read.',
+            },
+          });
+          expect((yield* stored)?.startedBy).toBe(sent[0]?.commandId);
+
+          yield* startPlaybook("develop");
+          expect(sent).toHaveLength(1);
+        }),
+    ),
+  );
+
+  it.effect.each([
+    {
+      name: "keeps the issue with its thread when a Start is interrupted after its prompt reached it",
+      committed: ["thread.create", "initial-message"] as const,
+      waits: false,
+    },
+    {
+      name: "links the empty thread of a Start interrupted after its thread was created",
+      committed: ["thread.create"] as const,
+      waits: true,
+    },
+  ])("$name", ({ committed, waits }) =>
+    Effect.gen(function* () {
+      const launching = yield* Deferred.make<void>();
+      return yield* harness(
+        {
+          committed,
+          launch: () => Deferred.succeed(launching, undefined).pipe(Effect.andThen(Effect.never)),
         },
-      });
+        ({ start: startPlaybook, linked, dispatched, stored }) =>
+          Effect.gen(function* () {
+            const started = yield* Effect.forkChild(startPlaybook("develop"));
+            yield* Deferred.await(launching);
+            yield* Fiber.interrupt(started);
+
+            expect(linked.map((link) => link.threadId)).toEqual([threadId]);
+            // The launch may have scheduled the run's preparation, so its run is left alone.
+            expect(dispatched).toEqual([]);
+            expect((yield* stored)?.startedBy === null).toBe(waits);
+            expect((yield* stored)?.startFailure).toBeNull();
+          }),
+      );
     }),
   );
 });

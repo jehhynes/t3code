@@ -207,6 +207,7 @@ import * as CursorAccountReader from "@t3tools/provider-cursor/server/CursorAcco
 import * as CursorUsageAccounts from "@t3tools/provider-cursor/server/CursorUsageAccounts";
 import * as UsageService from "./usage/UsageService.ts";
 import * as CodexUsageHistory from "./usage/CodexUsageHistory.ts";
+import * as CommandReceiptStore from "./orchestration-v2/CommandReceiptStore.ts";
 import * as RuntimeLayer from "./orchestration-v2/runtimeLayer.ts";
 import * as ProjectStore from "./orchestration-v2/ProjectStore.ts";
 import * as ThreadSearch from "./orchestration-v2/ThreadSearch.ts";
@@ -451,6 +452,12 @@ const layerThreadIssueService = ThreadIssueService.layer.pipe(Layer.provide(laye
 // One instance, shared with the board timer, so Start and the timer see the same board reads.
 const layerPlaybookStartService = PlaybookStartService.layer.pipe(
   Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
+  // Receipts tell a failed start whether its thread or prompt exists (jehhynes/t3code#23).
+  Layer.provide(
+    CommandReceiptStore.layerFromApplicationReceipts.pipe(
+      Layer.provide(RuntimeLayer.layerEventInfrastructure),
+    ),
+  ),
   Layer.provide(layerThreadIssueService),
   Layer.provide(layerIssueService),
 );
