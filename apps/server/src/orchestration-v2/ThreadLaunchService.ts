@@ -40,6 +40,7 @@ import {
 } from "@t3tools/shared/git";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
+import * as IssueWorktrees from "../issue/IssueWorktrees.ts"; // Fork-only (jehhynes/t3code#44)
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ManagedProjectFolders from "../project/ManagedProjectFolders.ts";
@@ -66,6 +67,8 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      // Fork-only (jehhynes/t3code#44)
+      readonly worktreePath?: string | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -215,6 +218,8 @@ const make = Effect.gen(function* () {
   const ids = yield* IdAllocator.IdAllocatorV2;
   const threads = yield* ThreadManagement.ThreadManagementService;
   const managedFolders = yield* ManagedProjectFolders.ManagedProjectFolders;
+  // Fork-only (jehhynes/t3code#44)
+  const issueWorktrees = yield* Effect.serviceOption(IssueWorktrees.IssueWorktrees);
   const preparationScope = yield* Scope.make("sequential");
   const scheduledLaunches = yield* Ref.make<ReadonlySet<CommandId>>(new Set());
   yield* Effect.addFinalizer(() => Scope.close(preparationScope, Exit.void));
@@ -422,6 +427,18 @@ const make = Effect.gen(function* () {
           }
         }
         if (shouldFetch) yield* setupTracker.stageStatus(threadId, "fetch", "done");
+        // Fork-only (jehhynes/t3code#44): whoever names a folder, it must be one the settings allow.
+        const folder = input.workspaceStrategy.worktreePath ?? null;
+        if (folder !== null) {
+          yield* Option.match(issueWorktrees, {
+            onNone: () =>
+              Effect.fail(
+                new IssueWorktrees.IssueWorktreeError({ detail: "No folder is allowed." }),
+              ),
+            onSome: (allowed) =>
+              allowed.checkFolder({ workspaceRoot: project.workspaceRoot, worktreePath: folder }),
+          }).pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+        }
         if (
           branch !== null &&
           isTemporaryWorktreeBranch(branch) &&
@@ -442,7 +459,7 @@ const make = Effect.gen(function* () {
               refName: startRef,
               newRefName: branch!,
               baseRefName,
-              path: null,
+              path: folder,
             },
             {
               progress: {
@@ -833,7 +850,13 @@ const make = Effect.gen(function* () {
   });
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
-    function* (request) {
+    function* (launchRequest) {
+      // Fork-only (jehhynes/t3code#44): an issue's draft names its new worktree.
+      const request = Option.isSome(issueWorktrees)
+        ? yield* issueWorktrees.value
+            .nameDraft(launchRequest)
+            .pipe(Effect.mapError(mapError(launchRequest, "provision-worktree")))
+        : launchRequest;
       // Scratch has no Git repository. Normalize before folder allocation so
       // durable preparation and retries use the thread's own Scratch folder.
       const input: ThreadLaunchInput =

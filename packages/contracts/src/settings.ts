@@ -51,7 +51,7 @@ import {
   ProviderInstanceId,
   ProviderDriverKind,
 } from "./providerInstance.ts";
-import { GitHubBoardConfig } from "./issueBoard.ts";
+import { GitHubBoardConfig, IssueWorktreeConfig } from "./issueBoard.ts"; // Fork-only (jehhynes/t3code#44)
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 import {
   CloudSpeechModelId,
@@ -1534,6 +1534,10 @@ export const ServerSettings = Schema.Struct({
   ),
   githubBoards: Schema.Array(GitHubBoardConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  // Fork-only (jehhynes/t3code#44)
+  issueWorktrees: Schema.Record(TrimmedNonEmptyString, IssueWorktreeConfig).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   githubBoardReadInterval: Schema.DurationFromMillis.pipe(
     Schema.withDecodingDefault(

@@ -17,6 +17,21 @@ export const GitHubBoardConfig = Schema.Struct({
 });
 export type GitHubBoardConfig = typeof GitHubBoardConfig.Type;
 
+/**
+ * How a project names an issue's new worktree, keyed in `settings.json` by the issue's repository
+ * (jehhynes/t3code#44). Each field left out keeps T3 Code's own behavior for it.
+ */
+export const IssueWorktreeConfig = Schema.Struct({
+  /** A branch name with `{{issue.type}}`, `{{issue.number}}` and `{{issue.slug}}`. */
+  branch: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Absolute, `~/…` or relative to the project's folder; fields only in its last part. */
+  folder: Schema.optionalKey(TrimmedNonEmptyString),
+  baseBranch: Schema.optionalKey(TrimmedNonEmptyString),
+  /** Label to `{{issue.type}}`; the first label it names wins, else `feat`. */
+  types: Schema.optionalKey(Schema.Record(TrimmedNonEmptyString, TrimmedNonEmptyString)),
+});
+export type IssueWorktreeConfig = typeof IssueWorktreeConfig.Type;
+
 /** An open issue that blocks a board issue. */
 export const IssueBoardBlocker = Schema.Struct({
   scope: TrimmedNonEmptyString,

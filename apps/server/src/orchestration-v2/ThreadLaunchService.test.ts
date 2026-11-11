@@ -42,6 +42,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import * as TestClock from "effect/testing/TestClock";
 
 import * as GitWorkflow from "../git/GitWorkflowService.ts";
+import * as IssueWorktrees from "../issue/IssueWorktrees.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as ProjectService from "../project/ProjectService.ts";
@@ -132,6 +133,7 @@ interface HarnessOptions {
   readonly serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   readonly providers?: ReadonlyArray<ServerProvider>;
   readonly git?: Partial<GitWorkflow.GitWorkflowService["Service"]>;
+  readonly issueWorktrees?: Layer.Layer<IssueWorktrees.IssueWorktrees> | undefined;
 }
 
 function makeHarness(options: HarnessOptions = {}) {
@@ -238,6 +240,7 @@ function makeHarness(options: HarnessOptions = {}) {
         layerThreadManagement,
         layerReceipts,
         IdAllocator.layer,
+        options.issueWorktrees ?? Layer.empty,
       ),
     ),
   );
@@ -1015,6 +1018,7 @@ it.effect("launches a worktree request for Scratch at the root, in its own folde
     assert.equal(git.runs[0]?.workspacePreparation?.type, "worktree");
     assert.equal(git.thread.worktreePath, "/other-repo-worktrees/feature");
     assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.cwd, "/other-repo");
+    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.path, null);
     assert.deepEqual(harness.claimed, [launched.threadId]);
   }).pipe(Effect.provide(harness.layer));
 });
@@ -1225,6 +1229,128 @@ it.effect("shows the fetch diagnosis when preparing a worktree from origin fails
     assert.equal(harness.runSetup.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
 });
+
+it.effect.each([
+  { name: "the folder check refuses", allows: false, guard: true },
+  { name: "no folder check is provided", allows: false, guard: false },
+])("fails a named worktree folder, making nothing, when $name, and Retry checks again", (input) => {
+  let allows = input.allows;
+  const checked: Array<string> = [];
+  const harness = makeHarness({
+    issueWorktrees: input.guard
+      ? Layer.mock(IssueWorktrees.IssueWorktrees)({
+          nameDraft: (launch) => Effect.succeed(launch),
+          checkFolder: ({ worktreePath }) =>
+            Effect.suspend(() => {
+              checked.push(worktreePath);
+              return allows
+                ? Effect.void
+                : Effect.fail(
+                    new IssueWorktrees.IssueWorktreeError({ detail: "The folder already exists." }),
+                  );
+            }),
+        })
+      : undefined,
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:named-folder",
+        thread: "thread:launch:named-folder",
+        message: "Start",
+        workspace: {
+          type: "worktree",
+          baseRef: "main",
+          branch: "fix/6-start",
+          worktreePath: "/projects/web.worktrees/6-start",
+        },
+      }),
+    );
+    const failed = yield* preparationSettled(launched.threadId);
+    assert.equal(failed.runs[0]?.status, "failed");
+    assert.equal(failed.thread.worktreePath, null);
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+    if (!input.guard) return;
+    assert.include(
+      failed.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      "The folder already exists.",
+    );
+
+    allows = true;
+    yield* launches.retryPreparation({
+      commandId: CommandId.make("command:launch:named-folder:retry"),
+      threadId: launched.threadId,
+      runId: failed.runs[0]!.id,
+    });
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+      Stream.filter((stored) => stored.commandId?.endsWith(":release") === true),
+      Stream.runHead,
+    );
+    assert.deepEqual(checked, [
+      "/projects/web.worktrees/6-start",
+      "/projects/web.worktrees/6-start",
+    ]);
+    assert.equal(
+      harness.createWorktree.mock.calls[0]?.[0]?.path,
+      "/projects/web.worktrees/6-start",
+    );
+    assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.newRefName, "fix/6-start");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect.each([true, false])(
+  "names a draft's new worktree from its issue, or fails the launch making nothing: names hold %s",
+  (hold) => {
+    const named = { branch: "fix/6-start", worktreePath: "/projects/web.worktrees/6-start" };
+    const harness = makeHarness({
+      issueWorktrees: Layer.mock(IssueWorktrees.IssueWorktrees)({
+        nameDraft: (launch) =>
+          hold
+            ? Effect.succeed(
+                launch.workspaceStrategy.type === "worktree"
+                  ? { ...launch, workspaceStrategy: { ...launch.workspaceStrategy, ...named } }
+                  : launch,
+              )
+            : Effect.fail(
+                new IssueWorktrees.IssueWorktreeError({ detail: "The branch fix/6-start exists." }),
+              ),
+        checkFolder: () => Effect.void,
+      }),
+    });
+    return Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launch = launches.launch(
+        launchInput({
+          command: "command:launch:draft-names",
+          thread: "thread:launch:draft-names",
+          message: "Start",
+          workspace: { type: "worktree", baseRef: "main" },
+        }),
+      );
+      if (!hold) {
+        const error = yield* Effect.flip(launch);
+        assert.include(String(error.cause), "The branch fix/6-start exists.");
+        const listed = yield* threads.listProjectThreads({ projectId, includeSubagents: false });
+        assert.equal(listed.length, 0);
+        return;
+      }
+      const launched = yield* launch;
+      const settled = yield* preparationSettled(launched.threadId);
+      assert.deepEqual(settled.runs[0]?.workspacePreparation, {
+        type: "worktree",
+        baseRef: "main",
+        ...named,
+      });
+      assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.path, named.worktreePath);
+      assert.equal(harness.createWorktree.mock.calls[0]?.[0]?.newRefName, named.branch);
+      // An explicit branch is not temporary, so the first message does not rename it.
+      assert.equal(harness.renameBranch.mock.calls.length, 0);
+    }).pipe(Effect.provide(harness.layer));
+  },
+);
 
 it.effect("rejects a preparation retry after the project disables its provider", () => {
   let fetchAttempts = 0;
