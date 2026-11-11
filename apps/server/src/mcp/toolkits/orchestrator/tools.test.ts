@@ -26,4 +26,25 @@ it("refuses a t3_thread_update whose fields do not fit its action", () => {
   expect(Exit.isSuccess(decode({ action: "rename", title: "New", environmentId: undefined }))).toBe(
     true,
   );
+  // Fork-only (jehhynes/t3code#75)
+  expect(Exit.isSuccess(decode({ action: "set_stage", stage: "2/6 verifying findings" }))).toBe(
+    true,
+  );
+  expect(Exit.isSuccess(decode({ action: "set_stage", stage: "x".repeat(64) }))).toBe(true);
+  const refusal = (input: object) => {
+    const exit = decode(input);
+    return Exit.isFailure(exit) ? String(exit.cause) : null;
+  };
+  expect(refusal({ action: "set_stage" })).toContain("set_stage requires stage");
+  expect(refusal({ action: "rename", title: "New", stage: "Fix" })).toContain(
+    "set_stage requires stage",
+  );
+  expect(refusal({ action: "set_stage", stage: "Fix", title: "New" })).toContain("rename requires");
+  expect(refusal({ action: "set_stage", stage: "   " })).not.toBeNull();
+  expect(refusal({ action: "set_stage", stage: "x".repeat(65) })).toContain("at most 64");
+  for (const breakChar of ["\n", "\u2028", "\u2029"]) {
+    expect(refusal({ action: "set_stage", stage: `Fix${breakChar}tests` })).toContain(
+      "single line",
+    );
+  }
 });

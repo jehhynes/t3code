@@ -1,6 +1,7 @@
 /**
- * Fork-only (jehhynes/t3code#73): a thread's stage, the in-progress item of the latest todo list
- * its running turn keeps. The SQL column and the in-memory form apply the same rule.
+ * Fork-only (jehhynes/t3code#73, #75): a thread's stage, the one its agent reported for a run that
+ * is still active, else the in-progress item of the latest todo list its running turn keeps. The
+ * SQL column and the in-memory form apply the same rule.
  */
 import type {
   OrchestrationV2ThreadProjection,
@@ -19,10 +20,10 @@ const ACTIVITY_STATUSES: ReadonlySet<Run["status"]> = new Set([
 ]);
 
 /**
- * The stage of thread alias `t`. Plan ids do not order lists, so a list's turn item ordinal does,
+ * The todo item of thread alias `t`. Plan ids do not order lists, so a list's turn item ordinal does,
  * and only the latest list's running step counts.
  */
-export const column = (
+const todoColumn = (
   sql: SqlClient.SqlClient,
   isSilentRun: (alias: string) => Statement.Fragment,
 ) => sql`(
@@ -54,11 +55,36 @@ export const column = (
   LIMIT 1
 )`;
 
+/** The stage of thread alias `t`. */
+export const column = (
+  sql: SqlClient.SqlClient,
+  isSilentRun: (alias: string) => Statement.Fragment,
+) => sql`COALESCE(
+  (
+    SELECT json_extract(t.payload_json, '$.reportedStage.text')
+    FROM orchestration_v2_projection_runs reported
+    WHERE reported.run_id = json_extract(t.payload_json, '$.reportedStage.runId')
+      AND reported.thread_id = t.thread_id
+      AND reported.status IN ('preparing', 'starting', 'running', 'waiting')
+      AND NOT ${isSilentRun("reported")}
+  ),
+  ${todoColumn(sql, isSilentRun)}
+)`;
+
 /** `runs` are the shell's runs, silent ones already left out. */
 export function ofProjection(
-  projection: Pick<OrchestrationV2ThreadProjection, "plans" | "turnItems">,
+  projection: Pick<OrchestrationV2ThreadProjection, "thread" | "plans" | "turnItems">,
   runs: ReadonlyArray<Run>,
 ): string | null {
+  const reported = projection.thread.reportedStage;
+  if (
+    reported !== undefined &&
+    runs.some(
+      (candidate) => candidate.id === reported.runId && ACTIVITY_STATUSES.has(candidate.status),
+    )
+  ) {
+    return reported.text;
+  }
   const run = runs
     .filter((candidate) => ACTIVITY_STATUSES.has(candidate.status))
     .toSorted((left, right) => right.ordinal - left.ordinal)[0];

@@ -17,6 +17,7 @@ import * as Layer from "effect/Layer";
 import * as ThreadManagementService from "../orchestration-v2/ThreadManagementService.ts";
 import type { McpInvocationScope } from "./McpInvocationContext.ts";
 import { threadNotFound } from "./threadAccess.ts";
+import * as ThreadStageReport from "./threadStageReport.ts"; // Fork-only (jehhynes/t3code#75)
 
 export class ThreadMetadataMcpService extends Context.Service<
   ThreadMetadataMcpService,
@@ -63,6 +64,7 @@ function metadataCommand(input: {
   readonly commandId: CommandId;
   readonly threadId: ThreadId;
   readonly update: ThreadMetadataMcpUpdateInput;
+  readonly reportedStage?: Parameters<typeof ThreadStageReport.command>[0]["reportedStage"]; // Fork-only (jehhynes/t3code#75)
 }): Extract<OrchestrationV2Command, { readonly type: "thread.metadata.update" }> {
   switch (input.update.action) {
     case "rename":
@@ -79,6 +81,8 @@ function metadataCommand(input: {
         threadId: input.threadId,
         regenerateTitle: true,
       };
+    case "set_stage": // Fork-only (jehhynes/t3code#75)
+      return ThreadStageReport.command(input);
   }
 }
 
@@ -144,6 +148,7 @@ const make = Effect.gen(function* () {
     if (shell === null || shell.deletedAt !== null) {
       return yield* threadNotFound(threadManagement, threadId, `Thread ${threadId} was not found.`);
     }
+    const reportedStage = yield* ThreadStageReport.forInput(input, shell); // Fork-only (jehhynes/t3code#75)
     const requestKey =
       input.clientRequestId === undefined ? yield* random.uuidV4() : input.clientRequestId;
     const updateCommandId = commandId({
@@ -158,6 +163,7 @@ const make = Effect.gen(function* () {
           commandId: updateCommandId,
           threadId,
           update: input,
+          reportedStage, // Fork-only (jehhynes/t3code#75)
         }),
       )
       .pipe(

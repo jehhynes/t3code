@@ -9,6 +9,7 @@ import {
 } from "./baseSchemas.ts";
 import { ThreadLinkedPullRequest } from "./threadPullRequest.ts";
 import { ThreadTitleRegeneration } from "./threadTitle.ts";
+import { stageFitsAction, ThreadStageText } from "./threadStage.ts"; // Fork-only (jehhynes/t3code#75)
 
 export function hasOnlyPairedSurrogates(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -40,13 +41,14 @@ const ThreadMetadataClientRequestId = TrimmedNonEmptyString.check(Schema.isMaxLe
   )
   .annotate({ description: "Stable idempotency key to reuse when retrying this mutation." });
 
-export const ThreadMetadataMcpAction = Schema.Literals(["rename", "regenerate_title"]);
+export const ThreadMetadataMcpAction = Schema.Literals(["rename", "regenerate_title", "set_stage"]); // Fork-only (jehhynes/t3code#75)
 export type ThreadMetadataMcpAction = typeof ThreadMetadataMcpAction.Type;
 
 export const ThreadMetadataMcpUpdateInput = Schema.Struct({
   threadId: Schema.optional(ThreadId),
   action: ThreadMetadataMcpAction,
   title: Schema.optional(ThreadMetadataTitle),
+  stage: Schema.optional(ThreadStageText), // Fork-only (jehhynes/t3code#75)
   clientRequestId: Schema.optional(ThreadMetadataClientRequestId),
 }).check(
   Schema.makeFilter((input) =>
@@ -54,6 +56,7 @@ export const ThreadMetadataMcpUpdateInput = Schema.Struct({
       ? true
       : "rename requires title; regenerate_title does not accept one.",
   ),
+  Schema.makeFilter(stageFitsAction), // Fork-only (jehhynes/t3code#75)
 );
 export type ThreadMetadataMcpUpdateInput = typeof ThreadMetadataMcpUpdateInput.Type;
 

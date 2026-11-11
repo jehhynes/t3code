@@ -4001,7 +4001,8 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               : command.regenerateTitle === false || command.title !== undefined
                 ? { titleRegeneration: null }
                 : {}),
-            updatedAt: now,
+            ...(command.reportedStage && { reportedStage: command.reportedStage }), // Fork-only (jehhynes/t3code#75)
+            updatedAt: command.reportedStage === undefined ? now : thread.updatedAt, // Fork-only (jehhynes/t3code#75)
           };
         }
         case "thread.pull-request.link":

@@ -3,6 +3,7 @@ import { assert, it } from "@effect/vitest";
 import {
   EventId,
   type ModelSelection,
+  type OrchestrationV2AppThread,
   MessageId,
   NodeId,
   type OrchestrationV2PlanStep,
@@ -51,33 +52,37 @@ it.layer(layerTest)("thread stage", (it) => {
           occurredAt: now,
         });
 
-      yield* apply({
-        type: "thread.created",
-        threadId,
-        payload: {
-          createdBy: "user",
-          creationSource: "web",
-          id: threadId,
-          projectId: ProjectId.make("project:stage"),
-          title: "Stage",
-          providerInstanceId: modelSelection.instanceId,
-          modelSelection,
-          runtimeMode: "full-access",
-          interactionMode: "default",
-          branch: null,
-          worktreePath: null,
-          activeProviderThreadId: null,
-          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
-          forkedFrom: null,
-          createdAt: now,
-          updatedAt: now,
-          archivedAt: null,
-          settledOverride: null,
-          settledAt: null,
-          lastVisitedAt: null,
-          deletedAt: null,
-        },
-      });
+      const thread = {
+        createdBy: "user",
+        creationSource: "web",
+        id: threadId,
+        projectId: ProjectId.make("project:stage"),
+        title: "Stage",
+        providerInstanceId: modelSelection.instanceId,
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        activeProviderThreadId: null,
+        lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+        forkedFrom: null,
+        createdAt: now,
+        updatedAt: now,
+        archivedAt: null,
+        settledOverride: null,
+        settledAt: null,
+        lastVisitedAt: null,
+        deletedAt: null,
+      } satisfies OrchestrationV2AppThread;
+      yield* apply({ type: "thread.created", threadId, payload: thread });
+      // Fork-only (jehhynes/t3code#75): an agent's report rides on the thread's metadata event.
+      const report = (run: number, text: string) =>
+        apply({
+          type: "thread.metadata-updated",
+          threadId,
+          payload: { ...thread, reportedStage: { runId: RunId.make(`run:stage:${run}`), text } },
+        });
 
       const run = (
         ordinal: number,
@@ -305,6 +310,28 @@ it.layer(layerTest)("thread stage", (it) => {
       yield* list({ run: 4, plan: "plan:n", ordinal: 10, steps: [step("Newer turn", "running")] });
       yield* list({ run: 3, plan: "plan:o", ordinal: 11, steps: [step("Older turn", "running")] });
       assert.strictEqual(yield* stage, "Newer turn");
+
+      // Fork-only (jehhynes/t3code#75): a reported stage, while its run is active.
+      yield* report(4, "2/6 verifying findings");
+      assert.strictEqual(
+        yield* stage,
+        "2/6 verifying findings",
+        "a report goes ahead of the todo item",
+      );
+      yield* report(4, "3/6 fixing tests");
+      assert.strictEqual(yield* stage, "3/6 fixing tests", "a new report replaces the last");
+      yield* report(3, "Older run's report");
+      assert.strictEqual(yield* stage, "Older run's report", "a newer active run does not hide it");
+      yield* report(1, "Ended run's report");
+      assert.strictEqual(yield* stage, "Newer turn", "a report for an ended run shows nothing");
+      yield* report(4, "4/6 waiting on you");
+      yield* run(4, "waiting", "message:stage:4");
+      assert.strictEqual(yield* stage, "4/6 waiting on you", "a waiting turn keeps its report");
+      yield* run(4, "completed", "message:stage:4");
+      yield* run(3, "completed", "message:stage:3");
+      assert.isUndefined(yield* stage, "the report goes away when the turn ends");
+      yield* run(5, "running", "message:stage:5");
+      assert.isUndefined(yield* stage, "a later turn does not show an earlier turn's report");
     }),
   );
 });
