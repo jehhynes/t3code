@@ -56,7 +56,9 @@ A change to the file applies at the next board read: the server's own, every few
 - "Me" is the GitHub account the server reads your boards with.
 - Without an `assignee` rule, a playbook picks issues whoever is assigned, so board status alone can
   decide.
-- `blocked` only selects: nothing waits for a blocker yet.
+- `blocked` only selects: `"blocked": false` takes a blocked issue out of the playbook, so it falls
+  to a later one. To keep it in its playbook and start it once its blockers close, use
+  [Wait for blockers](#wait-for-blockers) instead.
 
 ## What a playbook starts
 
@@ -119,10 +121,12 @@ sent to that thread, after its running turn ends if one is running, so the work 
 the thread keeps its own model and modes. Otherwise Start launches the playbook's thread in the
 issue's project, linked to the issue, in the folder that
 [Which folder a thread runs in](#which-folder-a-thread-runs-in) describes. Either way the issue leaves the
-list. An issue whose repository has no T3 Code project shows that instead of Start.
+list, unless an open blocker holds it on a board that
+[waits for blockers](#wait-for-blockers): Start then queues it and the row stays. An issue whose
+repository has no T3 Code project shows that instead of Start.
 
 To change a start before it runs, open the arrow beside Start or Retry and choose **Start with
-guidance…**. T3 Code opens a new thread in the issue's project, not yet started, with the
+guidance…**; a row held by an open blocker has no arrow. T3 Code opens a new thread in the issue's project, not yet started, with the
 playbook's prompt in the composer, its issue fields filled in as Start fills them, and the model,
 permission mode and folder Start would use. Edit the prompt, change the model, mode or folder, or
 add attachments as in any new thread, then press Send: the thread is linked to the issue and the
@@ -316,6 +320,38 @@ with the Issues page closed and no client connected.
   once the project exists.
 - When you give a playbook `autoStart`, or turn its board on, the issues already waiting in it
   start at the next board read, except those whose start by itself already failed.
+- On a board that [waits for blockers](#wait-for-blockers), an issue with an open blocker does not
+  start until a read shows none, and waiting does not use up its one start.
+
+## Wait for blockers
+
+With `"waitForBlockers": true` on a board in `githubBoards` (see
+[Name your boards](issue-boards.md#name-your-boards)), an issue that has an open blocking issue on
+GitHub ("blocked by") stays in its playbook's selection under **Waiting to start**, but does not
+start until its last open blocker closes. The server checks the blockers on each board read, so a
+queued issue, or one whose playbook starts by itself and has not tried it, starts within one read
+interval of its blocker closing or of the dependency being removed.
+
+- A row that waits for Start reads "Waits for #12": its playbook waits for Start, or its start by
+  itself already failed. **Start**, or **Retry**, queues it:
+  nothing starts then, and the server starts it by itself once no open blocker is left, as Start
+  would, also after a restart of T3 Code. When the issue has an open thread, the prompt goes to that
+  thread then.
+- A queued row, and a row whose playbook [starts by itself](#start-by-itself) and has not tried it,
+  read "Starts when #12 closes". Hover the line for each blocker's number and title.
+- **Cancel start** on a queued row takes the queue back; the issue waits for Start again. It does
+  not stop a playbook that starts by itself.
+- Start with guidance and With another playbook are not offered on a held row. A draft you opened
+  before the issue gained its blocker can still be sent, but the issue keeps waiting: a new thread
+  is then an ordinary one, not linked to the issue, and the issue's open thread keeps its link.
+- A queued start that fails shows its cause with **Retry**, as any failed start does, and is not
+  tried again by itself.
+- When the issue leaves the playbook's selection or moves to another playbook, its queued start is
+  dropped. While its board is off, the queue stays, and the issue starts at the first read after you
+  turn the board on, if no blocker is left.
+- A thread already open for the issue is not stopped or settled when the issue gains a blocker.
+- There is no override for one issue: to start it before its blocker closes, remove the dependency
+  on GitHub or turn the setting off.
 
 ## Mistakes
 

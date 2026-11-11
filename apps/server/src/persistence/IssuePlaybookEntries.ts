@@ -34,6 +34,11 @@ const PlaybookEntryRow = Schema.Struct({
    * entries, so its threads settle once for each leave (jehhynes/t3code#57).
    */
   leftAt: Schema.NullOr(Schema.String),
+  /**
+   * Whether Start was pressed while the issue had an open blocker, so the server starts the entry
+   * by itself once none is left; a new entry clears it (jehhynes/t3code#65).
+   */
+  startQueued: Schema.BooleanFromBit,
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -55,8 +60,22 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       readonly playbook: string;
       /** Unique to this Start. */
       readonly startedBy: string;
-      /** A start by the server itself, which claims only an entry it has not tried. */
+      /**
+       * A start by the server itself, which claims only a queued entry, or one it has not tried
+       * whose playbook starts by itself.
+       */
       readonly auto?: boolean;
+      /** Whether the playbook starts by itself. */
+      readonly selfStarting?: boolean;
+    }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
+    /**
+     * Queues or takes back a Start of the issue's entry while it waits with this playbook; answers
+     * whether it did. Keeps the entry's try and its last failure.
+     */
+    readonly setQueued: (input: {
+      readonly issueKey: string;
+      readonly playbook: string;
+      readonly queued: boolean;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Makes the entry wait again while this claim still holds it, with why its start failed; a
@@ -83,7 +102,7 @@ const make = Effect.gen(function* () {
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
         started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
-        left_at AS "leftAt"
+        left_at AS "leftAt", start_queued AS "startQueued"
       FROM issue_playbook_entries
     `,
   });
@@ -102,11 +121,13 @@ const make = Effect.gen(function* () {
         for (const row of writes) {
           yield* sql`
             INSERT INTO issue_playbook_entries (
-              issue_key, board, playbook, started_by, auto_tried, start_failure, left_at
+              issue_key, board, playbook, started_by, auto_tried, start_failure, left_at,
+              start_queued
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
-              ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt}
+              ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt},
+              ${row.startQueued ? 1 : 0}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
@@ -114,7 +135,8 @@ const make = Effect.gen(function* () {
               started_by = excluded.started_by,
               auto_tried = excluded.auto_tried,
               start_failure = excluded.start_failure,
-              left_at = excluded.left_at
+              left_at = excluded.left_at,
+              start_queued = excluded.start_queued
           `;
           next.set(row.issueKey, row);
         }
@@ -130,8 +152,10 @@ const make = Effect.gen(function* () {
           playbook: string | null;
           startedBy: string | null;
           autoTried: number;
+          startQueued: number;
         }>`
-          SELECT playbook AS "playbook", started_by AS "startedBy", auto_tried AS "autoTried"
+          SELECT playbook AS "playbook", started_by AS "startedBy", auto_tried AS "autoTried",
+            start_queued AS "startQueued"
           FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
         `;
         // Names compare as selection compares them, which SQLite's ASCII-only lower() does not.
@@ -139,19 +163,44 @@ const make = Effect.gen(function* () {
           row === undefined ||
           row.startedBy !== null ||
           row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
-          (input.auto === true && row.autoTried !== 0)
+          (input.auto === true &&
+            row.startQueued === 0 &&
+            (input.selfStarting !== true || row.autoTried !== 0))
         ) {
           return false;
         }
         yield* sql`
           UPDATE issue_playbook_entries
-          SET started_by = ${input.startedBy}, auto_tried = ${input.auto === true ? 1 : row.autoTried}
+          SET started_by = ${input.startedBy}, auto_tried = ${input.auto === true ? 1 : row.autoTried},
+            start_queued = 0
           WHERE issue_key = ${input.issueKey}
         `;
         return true;
       },
       sql.withTransaction,
       Effect.mapError(sqlError("claimIssuePlaybookEntry")),
+    ),
+    setQueued: Effect.fn("IssuePlaybookEntriesRepository.setQueued")(
+      function* (input) {
+        const [row] = yield* sql<{ playbook: string | null; startedBy: string | null }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy"
+          FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
+        `;
+        if (
+          row === undefined ||
+          row.startedBy !== null ||
+          row.playbook?.toLowerCase() !== input.playbook.toLowerCase()
+        ) {
+          return false;
+        }
+        yield* sql`
+          UPDATE issue_playbook_entries SET start_queued = ${input.queued ? 1 : 0}
+          WHERE issue_key = ${input.issueKey}
+        `;
+        return true;
+      },
+      sql.withTransaction,
+      Effect.mapError(sqlError("queueIssuePlaybookEntry")),
     ),
     release: Effect.fn("IssuePlaybookEntriesRepository.release")(
       function* (input) {

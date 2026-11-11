@@ -951,8 +951,10 @@ describe("IssueService", () => {
       const service = yield* makeService({
         projects: [],
         enabledBoards: new Set(["acme/1"]),
-        boards: [{ owner: "acme", number: 1, statusField: "Status" }],
-        playbooks: JSON.stringify([{ name: "develop", rules: { status: ["Ready"] }, prompt: "p" }]),
+        boards: [{ owner: "acme", number: 1, statusField: "Status", waitForBlockers: true }], // Fork-only (jehhynes/t3code#65)
+        playbooks: JSON.stringify([
+          { name: "develop", rules: { status: ["Ready"] }, prompt: "p", autoStart: true }, // Fork-only (jehhynes/t3code#65)
+        ]),
         playbookEntries: store,
         trackers: [
           fakeTracker({
@@ -973,13 +975,18 @@ describe("IssueService", () => {
         result.boards.flatMap((board) =>
           board.entries.map((entry) => [entry.waitingPlaybook, entry.startFailure]),
         );
+      // Fork-only (jehhynes/t3code#65): whether the server starts the waiting issue by itself.
+      const bySelf = (result: IssueBoardResult) =>
+        result.boards.flatMap((board) =>
+          board.entries.map((entry) => [entry.startQueued, entry.startsBySelf]),
+        );
 
       // A subscriber with nothing published yet starts the first read.
       const subscribed = yield* Deferred.make<void>();
       const published = yield* Effect.forkChild(
         service.subscribeBoard.pipe(
           Stream.tap(() => Deferred.succeed(subscribed, undefined)),
-          Stream.take(3),
+          Stream.take(4), // Fork-only (jehhynes/t3code#65)
           Stream.runCollect,
         ),
       );
@@ -989,6 +996,7 @@ describe("IssueService", () => {
       const first = yield* Fiber.join(joined);
       expect(reads).toBe(1);
       expect(waiting(first)).toEqual([["develop", null]]);
+      expect(first.boards[0]?.waitForBlockers).toBe(true); // Fork-only (jehhynes/t3code#65)
 
       // A Start's claim reaches subscribers without another GitHub read.
       yield* Deferred.await(subscribed);
@@ -1006,11 +1014,26 @@ describe("IssueService", () => {
         failure: "The launch failed.",
       });
       yield* service.refreshWaiting;
+      // Fork-only (jehhynes/t3code#65): a queued Start reaches subscribers the same way.
+      yield* store.setQueued({
+        issueKey: "github github.com acme/web 1",
+        playbook: "develop",
+        queued: true,
+      });
+      yield* service.refreshWaiting;
       const results = [...(yield* Fiber.join(published))];
       expect(results.map(waiting)).toEqual([
         [["develop", null]],
         [[null, null]],
         [["develop", "The launch failed."]],
+        [["develop", "The launch failed."]], // Fork-only (jehhynes/t3code#65)
+      ]);
+      // Fork-only (jehhynes/t3code#65): untried by itself, then started, then queued.
+      expect(results.map(bySelf)).toEqual([
+        [[false, true]],
+        [[false, false]],
+        [[false, true]],
+        [[true, true]],
       ]);
       expect(reads).toBe(1);
     }).pipe(

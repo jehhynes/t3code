@@ -64,8 +64,8 @@ import { readBoards } from "./issueBoard.ts";
 import {
   reconcilePlaybookEntries,
   recordedByBoard,
-  startFailure,
-  waitingPlaybook,
+  selfStartingPlaybooks, // Fork-only (jehhynes/t3code#65)
+  waitingFields,
 } from "./playbookEntries.ts";
 import {
   PLAYBOOKS_FILE,
@@ -559,6 +559,7 @@ const make = Effect.gen(function* () {
     boards: ReadonlyArray<IssueBoard>,
     open: ReadonlyMap<string, IssueThreadLinks.OpenIssueThread>,
     rows: ReadonlyMap<string, IssuePlaybookEntries.PlaybookEntryRow>,
+    selfStarting: ReadonlySet<string>, // Fork-only (jehhynes/t3code#65)
   ): ReadonlyArray<IssueBoard> =>
     boards.map((candidate) => {
       const boardKey = IssueBoardSources.boardSourceKey(candidate);
@@ -572,8 +573,7 @@ const make = Effect.gen(function* () {
             ...entry,
             hasOpenThread: open.has(key),
             // Only on the board whose read decided it, so Start takes that board's fields.
-            waitingPlaybook: waitingPlaybook(row),
-            startFailure: startFailure(row),
+            ...waitingFields(row, selfStarting), // Fork-only (jehhynes/t3code#65)
           };
         }),
       };
@@ -650,7 +650,8 @@ const make = Effect.gen(function* () {
               : playbookEntries.list
           ).pipe(Effect.mapError(entriesError));
       const result: IssueBoardResult = {
-        boards: withThreads(boards, open, rows),
+        // Fork-only (jehhynes/t3code#65): which waiting issues start by themselves.
+        boards: withThreads(boards, open, rows, selfStartingPlaybooks(playbooks)),
         playbookErrors,
         playbooks: playbooks.map((playbook) => playbook.name),
       };
@@ -700,9 +701,10 @@ const make = Effect.gen(function* () {
     if (latest === null) return;
     const open = yield* readOpenThreads;
     const rows = yield* playbookEntries.list.pipe(Effect.mapError(entriesError));
+    const { playbooks } = yield* readPlaybooks; // Fork-only (jehhynes/t3code#65)
     yield* SubscriptionRef.set(latestBoard, {
       ...latest,
-      boards: withThreads(latest.boards, open, rows),
+      boards: withThreads(latest.boards, open, rows, selfStartingPlaybooks(playbooks)),
     });
   }).pipe(publishing.withPermits(1), Effect.withSpan("IssueService.refreshWaiting"));
 

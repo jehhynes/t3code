@@ -75,7 +75,11 @@ const playbooks: ReadonlyArray<IssuePlaybook> = [
   { name: "develop", rules: {}, prompt: "p" },
 ];
 
-const row = (key: string, autoTried = false): IssuePlaybookEntries.PlaybookEntryRow => ({
+const row = (
+  key: string,
+  autoTried = false,
+  overrides: Partial<IssuePlaybookEntries.PlaybookEntryRow> = {},
+): IssuePlaybookEntries.PlaybookEntryRow => ({
   issueKey: issueKey(key),
   board: "acme/1",
   playbook: "deploy",
@@ -83,6 +87,8 @@ const row = (key: string, autoTried = false): IssuePlaybookEntries.PlaybookEntry
   autoTried,
   startFailure: null,
   leftAt: null,
+  startQueued: false,
+  ...overrides,
 });
 
 describe("autoStartEntries", () => {
@@ -109,6 +115,49 @@ describe("autoStartEntries", () => {
     ]) {
       expect(autoStartEntries({ result: blocked, playbooks, rows })).toEqual([]);
     }
+  });
+
+  it("holds an issue with an open blocker on a board that waits for blockers, and starts a queued one once none is left", () => {
+    const blocker = {
+      scope: "acme/web",
+      key: "12",
+      displayKey: "#12",
+      title: "Blocker",
+      url: "https://github.com/acme/web/issues/12",
+    };
+    const queued = { playbook: "develop", startQueued: true };
+    const rows = new Map(
+      [
+        row("1"),
+        row("2", false, queued),
+        row("3", true, { ...queued, playbook: "deploy" }),
+        row("4", false, { playbook: "develop" }),
+      ].map((r) => [r.issueKey, r]),
+    );
+    const listed = (blockers: ReadonlyArray<typeof blocker>) => [
+      entry("1", { blockers }),
+      entry("2", { waitingPlaybook: "develop", blockers }),
+      entry("3", { blockers }),
+      entry("4", { waitingPlaybook: "develop", blockers }),
+    ];
+    const waiting = (blockers: ReadonlyArray<typeof blocker>, waitForBlockers?: boolean) => {
+      const read = result(listed(blockers));
+      return {
+        ...read,
+        boards: read.boards.map((board) =>
+          waitForBlockers === undefined ? board : { ...board, waitForBlockers },
+        ),
+      };
+    };
+    const keys = (read: IssueBoardResult) =>
+      autoStartEntries({ result: read, playbooks, rows }).map((s) => s.entry.key);
+
+    expect(keys(waiting([blocker], true))).toEqual([]);
+    // Once no blocker is left: the untried self-starting one, and each queued one, tried or not.
+    expect(keys(waiting([], true))).toEqual(["1", "2", "3"]);
+    // A board that does not wait for blockers starts them as before.
+    expect(keys(waiting([blocker]))).toEqual(["1", "2", "3"]);
+    expect(keys(waiting([blocker], false))).toEqual(["1", "2", "3"]);
   });
 });
 
@@ -186,8 +235,10 @@ function harness<A, E>(
           }),
           // Claims as Start does, so an entry it tried is not offered again.
           Layer.mock(PlaybookStartService.PlaybookStartService)({
-            start: ({ playbook, entry: startEntry }, options) =>
+            start: (request, options) =>
               Effect.gen(function* () {
+                if (!("entry" in request)) return yield* Effect.die("no cancel here");
+                const { playbook, entry: startEntry } = request;
                 yield* Queue.offer(attempts, startEntry.key);
                 const claimed = yield* store
                   .claim({
@@ -195,6 +246,7 @@ function harness<A, E>(
                     playbook,
                     startedBy: `issue-playbook:${startEntry.key}`,
                     auto: options?.auto === true,
+                    selfStarting: playbook === "deploy",
                   })
                   .pipe(Effect.orDie);
                 if (!claimed) {

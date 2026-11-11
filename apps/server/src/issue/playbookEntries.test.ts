@@ -2,7 +2,13 @@ import { describe, expect, it } from "@effect/vitest";
 import { IssueTrackerKind, type IssueBoard, type IssueBoardEntry } from "@t3tools/contracts";
 
 import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybookEntries.ts";
-import { reconcilePlaybookEntries, startFailure, waitingPlaybook } from "./playbookEntries.ts";
+import {
+  heldIn,
+  reconcilePlaybookEntries,
+  startFailure,
+  waitingFields,
+  waitingPlaybook,
+} from "./playbookEntries.ts";
 
 const earlier = "2026-11-09T12:00:00.000Z";
 const started = "issue-playbook:earlier";
@@ -58,6 +64,7 @@ const row = (
   autoTried = false,
   startFailure: string | null = null,
   leftAt: string | null = null,
+  startQueued = false,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -66,6 +73,7 @@ const row = (
   autoTried,
   startFailure,
   leftAt,
+  startQueued,
 });
 const now = "2026-11-11T12:00:00.000Z";
 const failed = "The project has no default model.";
@@ -105,7 +113,7 @@ describe("reconcilePlaybookEntries", () => {
       name: "an issue that moves to another selection waits with it, open thread or not, untried, and has not left",
       rows: [
         row("1", "develop", started, "acme/1", true, null, earlier),
-        row("2", "develop", null, "acme/1", true, failed),
+        row("2", "develop", null, "acme/1", true, failed, null, true),
       ],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
       writes: [row("1", "ship", null, "acme/1", false, null, earlier), row("2", "ship", null)],
@@ -114,7 +122,7 @@ describe("reconcilePlaybookEntries", () => {
       name: "an issue that leaves every selection, or the board, leaves its entry at the read's time",
       rows: [
         row("1", "develop", started, "acme/1", false, null, earlier),
-        row("2", "develop", null, "acme/1", true, failed),
+        row("2", "develop", null, "acme/1", true, failed, null, true),
         row("3", null, null, "acme/1", false, null, earlier),
       ],
       boards: [board(1, [entry("1", null), entry("3", null)])],
@@ -149,9 +157,9 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moved to another board follows it, keeping its entry",
-      rows: [row("1", "develop", null, "acme/1", true, failed, earlier)],
+      rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", null, "acme/2", true, failed, earlier)],
+      writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
@@ -175,5 +183,63 @@ describe("reconcilePlaybookEntries", () => {
     expect(startFailure(row("1", "develop", started, "acme/1", false, failed))).toBeNull();
     expect(startFailure(row("1", "develop", null))).toBeNull();
     expect(startFailure(undefined)).toBeNull();
+  });
+
+  it("starts a waiting entry by itself when it was queued, or its playbook starts by itself and has not tried it", () => {
+    const selfStarting = new Set(["deploy"]);
+    const fields = (candidate: PlaybookEntryRow | undefined) => {
+      const { startQueued, startsBySelf } = waitingFields(candidate, selfStarting);
+      return { startQueued, startsBySelf };
+    };
+    const queued = row("1", "develop", null, "acme/1", false, null, null, true);
+    expect(fields(queued)).toEqual({ startQueued: true, startsBySelf: true });
+    expect(fields(row("1", "develop", null))).toEqual({ startQueued: false, startsBySelf: false });
+    expect(fields(row("1", "Deploy", null))).toEqual({ startQueued: false, startsBySelf: true });
+    // Tried by itself, failed or interrupted, it waits for Start.
+    expect(fields(row("1", "deploy", null, "acme/1", true))).toEqual({
+      startQueued: false,
+      startsBySelf: false,
+    });
+    expect(fields({ ...queued, startedBy: started })).toEqual({
+      startQueued: false,
+      startsBySelf: false,
+    });
+    expect(fields(undefined)).toEqual({ startQueued: false, startsBySelf: false });
+  });
+});
+
+describe("heldIn", () => {
+  const blocker = {
+    scope: "acme/web",
+    key: "12",
+    displayKey: "#12",
+    title: "Blocker",
+    url: "https://github.com/acme/web/issues/12",
+  };
+  const listed = (waitForBlockers: boolean | undefined, blockers = [blocker]) => ({
+    boards: [
+      {
+        ...board(1, [{ ...entry("1", "develop"), waitingPlaybook: "develop", blockers }]),
+        ...(waitForBlockers === undefined ? {} : { waitForBlockers }),
+      },
+    ],
+    playbookErrors: [],
+  });
+
+  it("holds a waiting issue with an open blocker only on a board that waits for blockers", () => {
+    expect(heldIn(listed(true), key("1"), "Develop")).toEqual([blocker]);
+    expect(heldIn(listed(true, []), key("1"), "develop")).toEqual([]);
+    expect(heldIn(listed(false), key("1"), "develop")).toEqual([]);
+    expect(heldIn(listed(undefined), key("1"), "develop")).toEqual([]);
+    expect(heldIn(listed(true), key("1"), "ship")).toEqual([]);
+    expect(heldIn(null, key("1"), "develop")).toEqual([]);
+    // A mistake in playbooks.json keeps the records as they were, and their hold.
+    expect(
+      heldIn(
+        { ...listed(true), playbookErrors: ["Playbook 2: Expected object"] },
+        key("1"),
+        "develop",
+      ),
+    ).toEqual([blocker]);
   });
 });

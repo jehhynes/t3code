@@ -20,6 +20,9 @@ Add `githubBoards` to the server's `settings.json` (`~/.t3/userdata/settings.jso
   board's URL (`github.com/orgs/my-org/projects/1`).
 - `statusField` names the board's single-select field that holds each issue's status. It is
   `Status` unless you set it.
+- `"waitForBlockers": true` holds the start of each issue that has an open blocking issue on GitHub
+  until its blockers close; see [Wait for blockers](playbooks.md#wait-for-blockers). It is off
+  unless you set it, because stacked work starts from its blocker's branch.
 - Boards are read with the server's GitHub sign-in, which needs access to the board's projects
   (the `project` or `read:project` scope for a GitHub CLI token).
 

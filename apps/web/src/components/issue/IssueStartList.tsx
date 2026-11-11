@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoardResult } from "@t3tools/contracts";
-import { ChevronDownIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
+import { ChevronDownIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -28,6 +28,7 @@ import { PULL_REQUEST_ROW_CLASS } from "../pullRequest/PullRequestListRow";
 import { BoardRowLines } from "./IssueBoardSection";
 import {
   type WaitingIssue,
+  holdText,
   otherPlaybooks,
   waitingIssueKey,
   waitingIssues,
@@ -41,12 +42,15 @@ function WaitingRow({
   environmentLabel,
   starting,
   onStart,
+  onCancel,
   onDraft,
 }: {
   issue: WaitingIssue;
   environmentLabel: string | undefined;
   starting: boolean;
   onStart: () => void;
+  /** Takes back a Start queued until the issue's blockers close. */
+  onCancel: () => void;
   /** Opens a draft with the issue's own playbook, or with `use`. */
   onDraft: (use?: string) => void;
 }) {
@@ -55,13 +59,31 @@ function WaitingRow({
   const failure = entry.startFailure ?? null;
   const others = otherPlaybooks(issue);
   const action = failure === null ? "Start" : "Retry";
+  const { hold } = issue;
   return (
     <div className={ROW_CLASS}>
-      <BoardRowLines entry={entry} failure={failure} />
+      <BoardRowLines
+        entry={entry}
+        failure={failure}
+        hold={hold === null ? null : holdText(hold, entry.blockers)}
+      />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">
           No T3 Code project for {entry.scope}
         </span>
+      ) : hold === "starts" ? (
+        entry.startQueued === true ? (
+          <Button
+            variant="outline"
+            size="xs"
+            disabled={starting || !canStart}
+            title={canStart ? "Take back the queued start" : "You cannot start threads here."}
+            onClick={onCancel}
+          >
+            <XIcon aria-hidden />
+            Cancel start
+          </Button>
+        ) : null
       ) : (
         <Group aria-label={`Start ${entry.displayKey}`}>
           <Button
@@ -69,14 +91,18 @@ function WaitingRow({
             size="xs"
             disabled={starting || !canStart}
             title={
-              canStart ? `${action} playbook ${entry.playbook}` : "You cannot start threads here."
+              !canStart
+                ? "You cannot start threads here."
+                : hold === "waits"
+                  ? `${action} playbook ${entry.playbook} once its blockers close`
+                  : `${action} playbook ${entry.playbook}`
             }
             onClick={onStart}
           >
             {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
             {action}
           </Button>
-          {issue.playbooks === undefined ? null : (
+          {issue.playbooks === undefined || hold !== null ? null : (
             <>
               <GroupSeparator />
               <Menu>
@@ -167,6 +193,8 @@ export function IssueStartList({
       input: { playbook: issue.entry.playbook, entry: issue.entry },
     });
     setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
+    // A Start queued behind open blockers keeps the row, which then says it is queued.
+    if (result._tag === "Success" && result.value.threadId === null) return;
     if (result._tag === "Success") {
       const answer = answerOf(issue.environmentId);
       if (answer !== undefined) {
@@ -188,6 +216,26 @@ export function IssueStartList({
     }
   };
 
+  const cancel = async (issue: WaitingIssue) => {
+    const key = waitingIssueKey(issue);
+    setStarting((current) => new Set([...current, key]));
+    const result = await startPlaybook({
+      environmentId: issue.environmentId,
+      input: { playbook: issue.entry.playbook, cancelQueued: issue.entry },
+    });
+    setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    const failure = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: `Could not take back the start of ${issue.entry.displayKey}`,
+      description:
+        typeof failure === "object" && failure !== null && "detail" in failure
+          ? String(failure.detail)
+          : String(failure),
+    });
+  };
+
   return (
     <section className="flex flex-col gap-1" aria-label="Waiting to start">
       <h2 className="flex items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
@@ -204,6 +252,7 @@ export function IssueStartList({
               environmentLabel={environmentLabels?.get(issue.environmentId)}
               starting={starting.has(key)}
               onStart={() => void start(issue)}
+              onCancel={() => void cancel(issue)}
               onDraft={(use) => void openDraft(issue, use)}
             />
           );

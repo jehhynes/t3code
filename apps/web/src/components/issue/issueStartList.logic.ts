@@ -1,9 +1,11 @@
 // Fork-only: which board issues wait for Start (jehhynes/t3code#6, #7).
-import type {
-  EnvironmentId,
-  IssueBoardEntry,
-  IssueBoardResult,
-  OrchestrationV2ThreadLaunchWorkspaceStrategy,
+import {
+  heldByBlockers,
+  type EnvironmentId,
+  type IssueBoard,
+  type IssueBoardEntry,
+  type IssueBoardResult,
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
 } from "@t3tools/contracts";
 
 export interface WaitingIssue {
@@ -14,6 +16,27 @@ export interface WaitingIssue {
    * than jehhynes/t3code#26.
    */
   readonly playbooks: ReadonlyArray<string> | undefined;
+  /**
+   * How an open blocker holds its start (jehhynes/t3code#65): it `starts` by itself once none is
+   * left, or `waits` for Start, which queues it; null when nothing holds it.
+   */
+  readonly hold: "starts" | "waits" | null;
+}
+
+function holdOf(board: IssueBoard, entry: IssueBoardEntry): WaitingIssue["hold"] {
+  if (!heldByBlockers(board, entry)) return null;
+  return entry.startsBySelf === true ? "starts" : "waits";
+}
+
+function joinKeys(keys: ReadonlyArray<string>): string {
+  return keys.length < 2 ? keys.join("") : `${keys.slice(0, -1).join(", ")} and ${keys.at(-1)}`;
+}
+
+/** What a held row says it waits for, such as "Starts when #12 closes". */
+export function holdText(hold: "starts" | "waits", blockers: IssueBoardEntry["blockers"]): string {
+  const keys = joinKeys(blockers.map((blocker) => blocker.displayKey));
+  if (hold === "waits") return `Waits for ${keys}`;
+  return `Starts when ${keys} ${blockers.length === 1 ? "closes" : "close"}`;
 }
 
 export function waitingIssueKey(issue: WaitingIssue): string {
@@ -41,7 +64,12 @@ export function waitingIssues(
               : entry.playbook
             : entry.waitingPlaybook;
         if (playbook === null) continue;
-        const issue = { environmentId, entry: { ...entry, playbook }, playbooks: answer.playbooks };
+        const issue = {
+          environmentId,
+          entry: { ...entry, playbook },
+          playbooks: answer.playbooks,
+          hold: holdOf(board, entry),
+        };
         const key = waitingIssueKey(issue);
         if (!waiting.has(key)) waiting.set(key, issue);
       }

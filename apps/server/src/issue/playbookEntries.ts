@@ -1,5 +1,10 @@
 // Fork-only: an issue waits for Start once each time it enters a selection (jehhynes/t3code#7).
-import type { IssueBoard, IssueBoardEntry, IssueBoardResult } from "@t3tools/contracts";
+import {
+  heldByBlockers,
+  type IssueBoard,
+  type IssueBoardEntry,
+  type IssueBoardResult,
+} from "@t3tools/contracts";
 
 import { boardSourceKey } from "../persistence/IssueBoardSources.ts";
 import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybookEntries.ts";
@@ -15,6 +20,37 @@ export const waitingPlaybook = (row: PlaybookEntryRow | undefined): string | nul
 /** Why the start of the entry the issue waits with last failed, or null (jehhynes/t3code#19). */
 export const startFailure = (row: PlaybookEntryRow | undefined): string | null =>
   waitingPlaybook(row) === null ? null : (row?.startFailure ?? null);
+
+/**
+ * What a board entry shows of its record: the playbook it waits with, its last failure, and whether
+ * the server starts it by itself once no open blocker is left (jehhynes/t3code#65).
+ */
+export function waitingFields(
+  row: PlaybookEntryRow | undefined,
+  /** The lowercased names of the playbooks that start by themselves. */
+  selfStarting: ReadonlySet<string>,
+) {
+  const playbook = waitingPlaybook(row);
+  const startQueued = playbook !== null && row?.startQueued === true;
+  return {
+    waitingPlaybook: playbook,
+    startFailure: startFailure(row),
+    startQueued,
+    startsBySelf:
+      startQueued ||
+      (playbook !== null && selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false),
+  };
+}
+
+/** The lowercased names of the playbooks that start by themselves. */
+export const selfStartingPlaybooks = (
+  playbooks: ReadonlyArray<{ readonly name: string; readonly autoStart?: boolean }>,
+): ReadonlySet<string> =>
+  new Set(
+    playbooks
+      .filter((playbook) => playbook.autoStart === true)
+      .map((playbook) => playbook.name.toLowerCase()),
+  );
 
 /** A board's read confirms each of these before it leaves one out (jehhynes/t3code#15). */
 export function recordedByBoard(
@@ -43,13 +79,37 @@ export function entryWaitingIn(
   playbook: string,
 ): IssueBoardEntry | undefined {
   if (result === null || result.playbookErrors.length > 0) return undefined;
-  return result.boards
-    .filter((board) => board.enabled && board.error === null)
-    .flatMap((board) => board.entries)
-    .find(
-      (entry) =>
-        issueThreadKey(entry) === issueKey && samePlaybook(entry.waitingPlaybook ?? null, playbook),
+  return waitingIn(result, issueKey, playbook)?.entry;
+}
+
+function waitingIn(result: IssueBoardResult | null, issueKey: string, playbook: string) {
+  if (result === null) return undefined;
+  for (const board of result.boards) {
+    if (!board.enabled || board.error !== null) continue;
+    const entry = board.entries.find(
+      (candidate) =>
+        issueThreadKey(candidate) === issueKey &&
+        samePlaybook(candidate.waitingPlaybook ?? null, playbook),
     );
+    if (entry !== undefined) return { board, entry };
+  }
+  return undefined;
+}
+
+/**
+ * The open blockers that hold the issue's start, as `result` lists it waiting with `playbook` on a
+ * board that waits for blockers; empty when nothing holds it (jehhynes/t3code#65). A mistake in
+ * `playbooks.json` keeps the records and the read's blockers, so it holds them too.
+ */
+export function heldIn(
+  result: IssueBoardResult | null,
+  issueKey: string,
+  playbook: string,
+): IssueBoardEntry["blockers"] {
+  const waiting = waitingIn(result, issueKey, playbook);
+  return waiting !== undefined && heldByBlockers(waiting.board, waiting.entry)
+    ? waiting.entry.blockers
+    : [];
 }
 
 /**
@@ -97,6 +157,7 @@ export function reconcilePlaybookEntries(input: {
         autoTried: false,
         startFailure: null,
         leftAt: null,
+        startQueued: false,
       });
     } else if (!deciding.has(row.board)) {
       continue;
@@ -109,6 +170,7 @@ export function reconcilePlaybookEntries(input: {
         autoTried: false,
         startFailure: null,
         leftAt: entry.playbook === null ? input.now : row.leftAt,
+        startQueued: false,
       });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
@@ -123,6 +185,7 @@ export function reconcilePlaybookEntries(input: {
         autoTried: false,
         startFailure: null,
         leftAt: input.now,
+        startQueued: false,
       });
     }
   }

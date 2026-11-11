@@ -102,13 +102,58 @@ describe("waitingIssues", () => {
   });
 });
 
+describe("hold", () => {
+  const blocker = (key: string) => ({
+    scope: "acme/web",
+    key,
+    displayKey: `#${key}`,
+    title: `Blocker ${key}`,
+    url: `https://github.com/acme/web/issues/${key}`,
+  });
+
+  it("holds a waiting issue with an open blocker only on a board that waits for blockers", () => {
+    const blockers = [blocker("12")];
+    const rows = (waitForBlockers: boolean | undefined) =>
+      waitingIssues([
+        [
+          env,
+          {
+            playbookErrors: [],
+            boards: [
+              {
+                ...board(1, [
+                  entry("1", { waitingPlaybook: "develop", blockers }),
+                  entry("2", { waitingPlaybook: "develop", blockers, startsBySelf: true }),
+                  entry("3", { waitingPlaybook: "develop" }),
+                ]),
+                ...(waitForBlockers === undefined ? {} : { waitForBlockers }),
+              },
+            ],
+          },
+        ],
+      ]).map((issue) => [issue.entry.key, issue.hold]);
+
+    expect(rows(true)).toEqual([
+      ["3", null],
+      ["2", "starts"],
+      ["1", "waits"],
+    ]);
+    expect(rows(undefined).map(([, hold]) => hold)).toEqual([null, null, null]);
+  });
+});
+
 describe("otherPlaybooks", () => {
   it.each([
     { own: "Ship", playbooks: ["develop", "ship", "other"], others: ["develop", "other"] },
     { own: "ship", playbooks: undefined, others: [] },
   ])("lists $others besides $own", ({ own, playbooks, others }) => {
     expect(
-      otherPlaybooks({ environmentId: env, entry: { ...entry("1"), playbook: own }, playbooks }),
+      otherPlaybooks({
+        environmentId: env,
+        entry: { ...entry("1"), playbook: own },
+        playbooks,
+        hold: null,
+      }),
     ).toEqual(others);
   });
 });

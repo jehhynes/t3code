@@ -22,6 +22,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           autoTried: false,
           startFailure: null,
           leftAt,
+          startQueued: false,
         },
       ]);
 
@@ -34,6 +35,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       autoTried: false,
       startFailure: null,
       leftAt: null,
+      startQueued: false,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -77,6 +79,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         autoTried: false,
         startFailure: null,
         leftAt: null,
+        startQueued: false,
       },
     ]);
     assert.isTrue(
@@ -89,7 +92,13 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     // The server tries an entry by itself once: a release keeps the try, so only Start is left.
     yield* enter(null);
     yield* enter("develop");
-    const auto = { issueKey, playbook: "develop", startedBy: "issue-playbook:e", auto: true };
+    const auto = {
+      issueKey,
+      playbook: "develop",
+      startedBy: "issue-playbook:e",
+      auto: true,
+      selfStarting: true,
+    };
     assert.isTrue(yield* store.claim(auto));
     assert.isTrue((yield* store.list).get(issueKey)?.autoTried);
     yield* store.release({ ...auto, failure: null });
@@ -104,11 +113,41 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       autoTried: true,
       startFailure: null,
       leftAt: null,
+      startQueued: false,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);
     yield* enter("develop");
     assert.isTrue(yield* store.claim({ ...auto, startedBy: "issue-playbook:h" }));
+
+    // A Start queued behind open blockers (jehhynes/t3code#65): the server claims it by itself
+    // once, even for a playbook that waits for Start or an entry it already tried.
+    yield* enter(null);
+    yield* enter("develop");
+    const byItself = { ...auto, selfStarting: false, startedBy: "issue-playbook:i" };
+    assert.isFalse(yield* store.claim(byItself));
+    const queue = { issueKey, playbook: "Develop", queued: true };
+    assert.isFalse(yield* store.setQueued({ ...queue, playbook: "ship" }));
+    assert.isTrue(yield* store.setQueued(queue));
+    assert.isTrue((yield* store.list).get(issueKey)?.startQueued);
+    // Taken back before the claim, it does not start.
+    assert.isTrue(yield* store.setQueued({ ...queue, queued: false }));
+    assert.isFalse(yield* store.claim(byItself));
+    assert.isTrue(yield* store.setQueued(queue));
+    assert.isTrue(yield* store.claim(byItself));
+    assert.isFalse(yield* store.setQueued({ ...queue, queued: false }));
+    yield* store.release({ ...byItself, failure: "The launch failed." });
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      startedBy: null,
+      autoTried: true,
+      startFailure: "The launch failed.",
+      startQueued: false,
+    });
+    assert.isFalse(yield* store.claim({ ...byItself, startedBy: "issue-playbook:j" }));
+    // Retry queues the tried entry again, keeping its failure, and the server claims it once more.
+    assert.isTrue(yield* store.setQueued(queue));
+    assert.strictEqual((yield* store.list).get(issueKey)?.startFailure, "The launch failed.");
+    assert.isTrue(yield* store.claim({ ...byItself, startedBy: "issue-playbook:k" }));
   }).pipe(
     Effect.provide(
       IssuePlaybookEntries.layer.pipe(

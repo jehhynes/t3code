@@ -69,9 +69,12 @@ function groupBoard(entries: ReadonlyArray<IssueBoardEntry>): ReadonlyArray<Boar
 export function BoardRowLines({
   entry,
   failure,
+  hold,
 }: {
   entry: IssueBoardEntry;
   failure?: string | null | undefined;
+  /** What a held issue waits for, in place of its blockers (jehhynes/t3code#65). */
+  hold?: string | null | undefined;
 }) {
   return (
     <>
@@ -113,7 +116,20 @@ export function BoardRowLines({
                 <TooltipPopup>{failure}</TooltipPopup>
               </Tooltip>
             ) : null}
-            {entry.blockers.length > 0 ? (
+            {hold ? (
+              <Tooltip>
+                <TooltipTrigger render={<span className="truncate text-warning-foreground" />}>
+                  {hold}
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {entry.blockers.map((blocker) => (
+                    <div key={`${blocker.scope} ${blocker.key}`}>
+                      {blocker.displayKey} {blocker.title}
+                    </div>
+                  ))}
+                </TooltipPopup>
+              </Tooltip>
+            ) : entry.blockers.length > 0 ? (
               <span className="truncate text-warning-foreground">
                 Blocked by {entry.blockers.map((blocker) => blocker.displayKey).join(", ")}
               </span>

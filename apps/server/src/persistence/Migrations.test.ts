@@ -182,15 +182,17 @@ describe("runMigrations", () => {
         VALUES ('github github.com acme/web 1', 'acme/1', 'develop', NULL, 1)
       `;
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN start_failure`;
+      yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN start_queued`; // Fork-only (jehhynes/t3code#65)
       yield* runMigrations();
       yield* runMigrations();
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(
         yield* sql`
-          SELECT playbook, auto_tried AS "autoTried", start_failure AS "startFailure"
+          SELECT playbook, auto_tried AS "autoTried", start_failure AS "startFailure",
+            start_queued AS "startQueued"
           FROM issue_playbook_entries
         `,
-        [{ playbook: "develop", autoTried: 1, startFailure: null }],
+        [{ playbook: "develop", autoTried: 1, startFailure: null, startQueued: 0 }], // Fork-only (jehhynes/t3code#65)
       );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

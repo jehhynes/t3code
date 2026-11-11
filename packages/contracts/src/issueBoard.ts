@@ -14,6 +14,8 @@ export const GitHubBoardConfig = Schema.Struct({
   number: PositiveInt,
   /** The single-select field that holds each issue's board status. */
   statusField: TrimmedNonEmptyString.pipe(Schema.withDecodingDefault(Effect.succeed("Status"))),
+  /** Holds each issue's start while it has an open blocker (jehhynes/t3code#65). */
+  waitForBlockers: Schema.optionalKey(Schema.Boolean),
 });
 export type GitHubBoardConfig = typeof GitHubBoardConfig.Type;
 
@@ -66,6 +68,16 @@ export const IssueBoardEntry = Schema.Struct({
    * older than this.
    */
   startFailure: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * Whether Start on the issue was queued until its blockers close (jehhynes/t3code#65). Absent
+   * from a server older than this.
+   */
+  startQueued: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Whether the server starts the waiting issue by itself once no open blocker is left: it was
+   * queued, or its playbook starts by itself and has not tried it. Absent from an older server.
+   */
+  startsBySelf: Schema.optionalKey(Schema.Boolean),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 
@@ -110,6 +122,8 @@ export const IssueBoard = Schema.Struct({
   statusField: TrimmedNonEmptyString,
   /** Whether the board is read; a board is off, with no entries, until it is turned on. */
   enabled: Schema.Boolean,
+  /** Whether an issue with an open blocker waits to start; absent from an older server. */
+  waitForBlockers: Schema.optionalKey(Schema.Boolean),
   entries: Schema.Array(IssueBoardEntry),
   /** Why the board could not be read; its entries are then empty. */
   error: Schema.NullOr(TrimmedNonEmptyString),
@@ -138,15 +152,23 @@ export const IssueBoardSetEnabledInput = Schema.Struct({
 });
 export type IssueBoardSetEnabledInput = typeof IssueBoardSetEnabledInput.Type;
 
-/** Starts the named playbook's thread for a board issue, as the board listed it. */
-export const IssuePlaybookStartInput = Schema.Struct({
-  /** The playbook whose selection the issue waits in; the start claims that entry. */
-  playbook: TrimmedNonEmptyString,
-  entry: IssueBoardEntry,
-});
+/**
+ * Starts the named playbook's thread for a board issue, as the board listed it, or queues the start
+ * while the issue has an open blocker; or takes a queued start back.
+ */
+export const IssuePlaybookStartInput = Schema.Union([
+  Schema.Struct({
+    /** The playbook whose selection the issue waits in; the start claims that entry. */
+    playbook: TrimmedNonEmptyString,
+    entry: IssueBoardEntry,
+  }),
+  // No `entry` key, so a server older than jehhynes/t3code#65 refuses it rather than start it.
+  Schema.Struct({ playbook: TrimmedNonEmptyString, cancelQueued: IssueBoardEntry }),
+]);
 export type IssuePlaybookStartInput = typeof IssuePlaybookStartInput.Type;
 
-export const IssuePlaybookStartResult = Schema.Struct({ threadId: ThreadId });
+/** The started thread; null when the start was queued, or a queued start was taken back. */
+export const IssuePlaybookStartResult = Schema.Struct({ threadId: Schema.NullOr(ThreadId) });
 export type IssuePlaybookStartResult = typeof IssuePlaybookStartResult.Type;
 
 /** What a draft thread for a board issue holds before I send it, as Start would launch it. */
@@ -158,6 +180,15 @@ export const IssuePlaybookDraftInput = Schema.Struct({
   use: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type IssuePlaybookDraftInput = typeof IssuePlaybookDraftInput.Type;
+
+/**
+ * Whether the issue is held: its board waits for blockers and it has an open one
+ * (jehhynes/t3code#65).
+ */
+export const heldByBlockers = (
+  board: Pick<IssueBoard, "waitForBlockers">,
+  entry: Pick<IssueBoardEntry, "blockers">,
+): boolean => board.waitForBlockers === true && entry.blockers.length > 0;
 
 /** The prompt is rendered with the issue's fields, its free text framed as untrusted data. */
 export const IssuePlaybookDraft = Schema.Union([

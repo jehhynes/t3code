@@ -29,6 +29,7 @@ import type { PlatformError } from "effect/PlatformError";
 import * as Layer from "effect/Layer";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
+import * as Semaphore from "effect/Semaphore";
 import type * as Result from "effect/Result";
 
 import * as ServerConfig from "../config.ts";
@@ -97,6 +98,14 @@ const playbooks = JSON.stringify([
   { name: "isolated", prompt: "Fix {{issue.url}}.", requiresWorktree: true },
 ]);
 
+const blocker = {
+  scope: "acme/web",
+  key: "12",
+  displayKey: "#12",
+  title: "Land the schema",
+  url: "https://github.com/acme/web/issues/12",
+};
+
 const issueWorktree = { worktreePath: "/worktrees/web/t3-6", branch: "fix/6-start" };
 
 interface Options {
@@ -120,6 +129,15 @@ interface Options {
   readonly auto?: boolean;
   /** The latest board read; one listing the issue waiting when left out. */
   readonly latest?: IssueBoardResult;
+  /** No board read yet: the first read lists the issue as the default latest read does. */
+  readonly unread?: boolean;
+  /** The default latest read lists the issue with an open blocker on a board that waits. */
+  readonly held?: boolean;
+  /** The default latest read's mistakes in `playbooks.json`. */
+  readonly playbookErrors?: ReadonlyArray<string>;
+  /** The entry's record: tried by itself, or queued by Start. */
+  readonly autoTried?: boolean;
+  readonly startQueued?: boolean;
   /** The worktree the issue's threads recorded last; none when left out. */
   readonly issueWorktree?: IssueThreadLinks.IssueWorktree;
   /** What `git worktree list` lists in the project, or a list that fails; none when left out. */
@@ -171,6 +189,10 @@ function harness<A, E>(
     readonly dispatched: ReadonlyArray<OrchestrationV2ServerCommand>;
     /** How many times the board listing was published again. */
     readonly refreshed: () => number;
+    /** How many times the boards were read. */
+    readonly reads: () => number;
+    /** A newer read lists the issue with an open blocker on a board that waits for blockers. */
+    readonly hold: Effect.Effect<void>;
     /** The issue's entry as stored now. */
     readonly stored: Effect.Effect<
       IssuePlaybookEntries.PlaybookEntryRow | undefined,
@@ -185,6 +207,31 @@ function harness<A, E>(
   /** Threads now linked to the issue, which make it the issue's open thread. */
   const linkedThreads: Array<ThreadId> = [];
   let refreshed = 0;
+  let reads = 0;
+  const listing = (held: boolean): IssueBoardResult => ({
+    boards: [
+      {
+        owner: "acme",
+        number: 1,
+        statusField: "Status",
+        enabled: true,
+        error: null,
+        ...(held ? { waitForBlockers: true } : {}),
+        entries: [
+          {
+            ...(input.entry ?? entry),
+            ...(held ? { blockers: [blocker] } : {}),
+            waitingPlaybook: input.waitingWith === undefined ? "develop" : input.waitingWith,
+          },
+        ],
+      },
+    ],
+    playbookErrors: input.playbookErrors ?? [],
+  });
+  const listedLatest = input.latest ?? listing(input.held === true);
+  let latest: IssueBoardResult | null = input.unread === true ? null : listedLatest;
+  // One permit, as IssueService publishes: a read or refresh inside `withLatestBoard` would hang.
+  const publishing = Semaphore.makeUnsafe(1);
   const receipt = (commandId: CommandId, threadId: ThreadId, commandType: string) =>
     Option.some({
       commandId,
@@ -212,9 +259,10 @@ function harness<A, E>(
           board: "acme/1",
           playbook: waitingWith ?? "develop",
           startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
-          autoTried: false,
+          autoTried: input.autoTried === true,
           startFailure: input.startFailure ?? null,
           leftAt: null,
+          startQueued: input.startQueued === true,
         },
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
@@ -230,6 +278,8 @@ function harness<A, E>(
         sent,
         dispatched,
         refreshed: () => refreshed,
+        reads: () => reads,
+        hold: Effect.sync(() => void (latest = listing(true))),
         stored: store.list.pipe(Effect.map((rows) => rows.get(issueKey))),
       });
     }).pipe(
@@ -431,29 +481,16 @@ function harness<A, E>(
               }),
               IssuePlaybookEntries.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
               Layer.mock(IssueService.IssueService)({
-                refreshWaiting: Effect.sync(() => void (refreshed += 1)),
+                refreshWaiting: publishing.withPermits(1)(Effect.sync(() => void (refreshed += 1))),
+                board: publishing.withPermits(1)(
+                  Effect.sync(() => {
+                    reads += 1;
+                    latest = listedLatest;
+                    return listedLatest;
+                  }),
+                ),
                 withLatestBoard: (use) =>
-                  use(
-                    input.latest ?? {
-                      boards: [
-                        {
-                          owner: "acme",
-                          number: 1,
-                          statusField: "Status",
-                          enabled: true,
-                          error: null,
-                          entries: [
-                            {
-                              ...(input.entry ?? entry),
-                              waitingPlaybook:
-                                input.waitingWith === undefined ? "develop" : input.waitingWith,
-                            },
-                          ],
-                        },
-                      ],
-                      playbookErrors: [],
-                    },
-                  ),
+                  publishing.withPermits(1)(Effect.suspend(() => use(latest))),
               }),
               Layer.succeed(
                 SecureRandom.SecureRandom,
@@ -1262,6 +1299,140 @@ describe("PlaybookStartService.start", () => {
   );
 });
 
+describe("PlaybookStartService.start on a board that waits for blockers", () => {
+  // The client's entry lists no blocker; the server's own latest read holds the issue.
+  it.effect.each([
+    { name: "Start", input: {} },
+    { name: "Retry", input: { startFailure: "The launch failed." } },
+    { name: "Start on an issue with an open thread", input: { openIssueKeys: [issueKey] } },
+    { name: "Start with no board read since a restart", input: { unread: true } },
+    {
+      name: "Start while playbooks.json has a mistake",
+      input: {
+        playbooksFile: playbooks.replace(/]$/, ', { "name": "broken" }]'),
+        playbookErrors: ["Playbook 5: a prompt is required"],
+      },
+    },
+  ])("$name on a held issue queues it and starts nothing", ({ input }) =>
+    Effect.gen(function* () {
+      const { result, launched, sent, linked, stored, refreshed, reads } = yield* start({
+        ...input,
+        playbook: "develop",
+        held: true,
+      });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: null } });
+      expect(launched).toEqual([]);
+      expect(sent).toEqual([]);
+      expect(linked).toEqual([]);
+      expect(stored).toMatchObject({
+        startedBy: null,
+        startQueued: true,
+        autoTried: false,
+        startFailure: input.startFailure ?? null,
+      });
+      expect(refreshed()).toBe(1);
+      expect(reads()).toBe(input.unread === true ? 1 : 0);
+    }),
+  );
+
+  it.effect("does not start a held issue by itself, nor count the hold as its try", () =>
+    Effect.gen(function* () {
+      const { result, launched, stored } = yield* start({
+        playbook: "deploy",
+        waitingWith: "deploy",
+        auto: true,
+        held: true,
+      });
+
+      expect(result).toMatchObject({ _tag: "Failure" });
+      expect(launched).toEqual([]);
+      expect(stored).toMatchObject({ startedBy: null, autoTried: false });
+    }),
+  );
+
+  it.effect.each([
+    { name: "a playbook that waits for Start", input: {} },
+    { name: "an entry its playbook already tried by itself", input: { autoTried: true } },
+  ])("starts a queued issue of $name by itself once unheld, once", ({ input }) =>
+    Effect.gen(function* () {
+      const { result, launched, stored } = yield* start({
+        ...input,
+        playbook: "develop",
+        auto: true,
+        startQueued: true,
+      });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(launched).toHaveLength(1);
+      expect(stored).toMatchObject({ startQueued: false, autoTried: true });
+    }),
+  );
+
+  it.effect.each([
+    { name: "a playbook that waits for Start", playbook: "develop", autoTried: false },
+    { name: "a self-starting playbook it already tried", playbook: "deploy", autoTried: true },
+  ])("shows a queued start's failure for $name, with Retry, and does not try it again", (row) =>
+    harness(
+      {
+        auto: true,
+        startQueued: true,
+        waitingWith: row.playbook,
+        autoTried: row.autoTried,
+        entry: { ...entry, projectId: ProjectId.make("gone") },
+      },
+      ({ start: startPlaybook, stored, launched }) =>
+        Effect.gen(function* () {
+          expect(yield* startPlaybook(row.playbook)).toMatchObject({
+            _tag: "Failure",
+            failure: { detail: "The issue's project no longer exists." },
+          });
+          expect(yield* stored).toMatchObject({
+            startedBy: null,
+            startQueued: false,
+            autoTried: true,
+            startFailure: "The issue's project no longer exists.",
+          });
+          expect(yield* startPlaybook(row.playbook)).toMatchObject({ _tag: "Failure" });
+          expect(launched).toEqual([]);
+        }),
+    ),
+  );
+
+  it.effect.each([
+    { name: "a playbook that waits for Start, which then starts nothing", playbook: "develop" },
+    { name: "a self-starting playbook, which still starts it itself", playbook: "deploy" },
+  ])("Cancel start takes the queue back for $name", ({ playbook }) =>
+    harness(
+      { auto: true, startQueued: true, waitingWith: playbook },
+      ({ service, start: startPlaybook, stored, launched, refreshed }) =>
+        Effect.gen(function* () {
+          expect(
+            yield* service.start({ playbook, cancelQueued: entry }).pipe(Effect.result),
+          ).toMatchObject({ _tag: "Success", success: { threadId: null } });
+          expect(yield* stored).toMatchObject({ startQueued: false, autoTried: false });
+          expect(refreshed()).toBe(1);
+
+          const byItself = yield* startPlaybook(playbook);
+          expect(byItself._tag).toBe(playbook === "deploy" ? "Success" : "Failure");
+          expect(launched).toHaveLength(playbook === "deploy" ? 1 : 0);
+        }),
+    ),
+  );
+
+  it.effect("starts a blocked issue at once on a board that does not wait for blockers", () =>
+    Effect.gen(function* () {
+      const { result, launched } = yield* start({
+        playbook: "develop",
+        entry: { ...entry, blockers: [blocker] },
+      });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(launched).toHaveLength(1);
+    }),
+  );
+});
+
 describe("PlaybookStartService.prepareDraft", () => {
   const prepare = (input: Options & { readonly playbook: string; readonly use?: string }) =>
     harness(input, ({ service }) =>
@@ -1386,6 +1557,20 @@ describe("PlaybookStartService.prepareDraft", () => {
       });
     }),
   );
+
+  it.effect.each([
+    { name: "its own playbook", use: undefined },
+    { name: "another playbook", use: "plain" },
+  ])("refuses a held issue with $name", ({ use }) =>
+    Effect.gen(function* () {
+      expect(
+        yield* prepare({ playbook: "develop", held: true, ...(use === undefined ? {} : { use }) }),
+      ).toMatchObject({
+        _tag: "Failure",
+        failure: { detail: "#6 waits for #12 to close, so it cannot start before then." },
+      });
+    }),
+  );
 });
 
 const draftThreadId = ThreadId.make("thread-draft");
@@ -1460,6 +1645,8 @@ describe("PlaybookStartService.startOnSend", () => {
       readonly playbook?: string;
       readonly thread?: ThreadId;
       readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
+      /** The issue gains an open blocker after the draft was named and before it is sent. */
+      readonly holdBeforeSend?: boolean;
     },
   ) =>
     harness(input, (context) =>
@@ -1470,6 +1657,7 @@ describe("PlaybookStartService.startOnSend", () => {
           entry: input.entry ?? entry,
           threadId: thread,
         });
+        if (input.holdBeforeSend === true) yield* context.hold;
         for (const message of input.messages) {
           yield* context.service.handleEvent(messageEvent({ ...message, threadId: thread }));
         }
@@ -1673,5 +1861,42 @@ describe("PlaybookStartService.startOnSend", () => {
       expect(launched).toEqual([]);
       expect(sends).toEqual([]);
     }),
+  );
+  it.effect.each([
+    { name: "a new draft", input: {} },
+    {
+      name: "the issue's open thread, whose link stays",
+      input: { thread: openThreadId, openIssueKeys: [issueKey] },
+    },
+    {
+      name: "a new draft, while playbooks.json has a mistake,",
+      input: { playbookErrors: ["Playbook 5: a prompt is required"] },
+    },
+  ])("starts nothing for an issue held once $name was named and then sent", ({ input }) =>
+    Effect.gen(function* () {
+      const { stored, linked, refreshed } = yield* sent({
+        ...input,
+        holdBeforeSend: true,
+        messages: [composerMessage()],
+      });
+
+      expect(stored).toMatchObject({ playbook: "develop", startedBy: null });
+      expect(linked).toEqual([]);
+      expect(refreshed()).toBe(0);
+    }),
+  );
+
+  it.effect("refuses a draft for a held issue", () =>
+    harness({ held: true }, ({ service }) =>
+      Effect.gen(function* () {
+        const result = yield* service
+          .startOnSend({ playbook: "develop", entry, threadId: draftThreadId })
+          .pipe(Effect.result);
+        expect(result).toMatchObject({
+          _tag: "Failure",
+          failure: { detail: "#6 waits for #12 to close, so it cannot start before then." },
+        });
+      }),
+    ),
   );
 });

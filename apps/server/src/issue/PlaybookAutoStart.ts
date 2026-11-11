@@ -2,6 +2,7 @@
 // (jehhynes/t3code#10).
 import {
   DEFAULT_GITHUB_BOARD_READ_INTERVAL,
+  heldByBlockers,
   type IssueBoardEntry,
   type IssueBoardResult,
   type IssuePlaybook,
@@ -20,6 +21,7 @@ import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
+import { selfStartingPlaybooks } from "./playbookEntries.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
 const MIN_BOARD_READ_INTERVAL = Duration.seconds(10);
@@ -30,8 +32,9 @@ export interface AutoStart {
 }
 
 /**
- * The issues to start by themselves: each waits with a playbook that starts by itself, has a
- * project, and was not tried yet. None while any playbook cannot select.
+ * The issues to start by themselves: each waits with a playbook that starts by itself and was not
+ * tried yet, or was queued by Start (jehhynes/t3code#65); has a project; and has no open blocker
+ * on a board that waits for blockers. None while any playbook cannot select.
  */
 export function autoStartEntries(input: {
   readonly result: IssueBoardResult;
@@ -39,20 +42,20 @@ export function autoStartEntries(input: {
   readonly rows: ReadonlyMap<string, IssuePlaybookEntries.PlaybookEntryRow>;
 }): ReadonlyArray<AutoStart> {
   if (input.result.playbookErrors.length > 0) return [];
-  const selfStarting = new Set(
-    input.playbooks
-      .filter((playbook) => playbook.autoStart === true)
-      .map((playbook) => playbook.name.toLowerCase()),
-  );
+  const selfStarting = selfStartingPlaybooks(input.playbooks);
   const starts: AutoStart[] = [];
   for (const board of input.result.boards) {
     if (!board.enabled || board.error !== null) continue;
     for (const entry of board.entries) {
       const playbook = entry.waitingPlaybook ?? null;
-      if (playbook === null || !selfStarting.has(playbook.toLowerCase())) continue;
+      if (playbook === null) continue;
       // It waits with that reason until its repository has a project.
       if (entry.projectId === null) continue;
-      if (input.rows.get(issueThreadKey(entry))?.autoTried !== false) continue;
+      // Held until a read shows no open blocker; the hold is no try.
+      if (heldByBlockers(board, entry)) continue;
+      const row = input.rows.get(issueThreadKey(entry));
+      const untried = selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false;
+      if (!untried && row?.startQueued !== true) continue;
       starts.push({ playbook, entry });
     }
   }
