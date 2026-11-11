@@ -130,12 +130,14 @@ describe("parsePlaybooks", () => {
           { name: "unprompted" },
           { name: "typo", prompt: "Fix {{issue.titel}} in {{issue.repository}}." },
           { name: "mode", prompt: "p", runtimeMode: "yolo" },
+          { name: "isolated", prompt: "p", requiresWorktree: "yes" },
           {
             name: "other",
             prompt: "Look at {{issue.title}}.",
             modelSelection: { instanceId: "codex", model: "gpt-5.4" },
             runtimeMode: "approval-required",
             interactionMode: "plan",
+            requiresWorktree: true,
           },
         ]),
       ),
@@ -149,6 +151,7 @@ describe("parsePlaybooks", () => {
           modelSelection: { instanceId: "codex", model: "gpt-5.4" },
           runtimeMode: "approval-required",
           interactionMode: "plan",
+          requiresWorktree: true,
         },
       ],
       errors: [
@@ -159,6 +162,7 @@ describe("parsePlaybooks", () => {
         "Playbook 6 (unprompted): Missing key at prompt",
         "Playbook 7 (typo): the prompt names {{issue.titel}}, which no issue has; use {{issue.number}}, {{issue.title}}, {{issue.url}}, {{issue.repository}}, {{issue.status}}, {{issue.labels}}, {{issue.assignees}}.",
         'Playbook 8 (mode): Expected "approval-required" | "auto-accept-edits" | "auto" | "full-access" at runtimeMode',
+        "Playbook 9 (isolated): Expected boolean at requiresWorktree",
       ],
     });
   });

@@ -37,6 +37,7 @@ import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as IssueService from "./IssueService.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
 
@@ -81,7 +82,10 @@ const playbooks = JSON.stringify([
   },
   { name: "plain", prompt: "Look at {{issue.url}}." },
   { name: "deploy", prompt: "Deploy {{issue.url}}.", autoStart: true },
+  { name: "isolated", prompt: "Fix {{issue.url}}.", requiresWorktree: true },
 ]);
+
+const issueWorktree = { worktreePath: "/worktrees/web/t3-6", branch: "fix/6-start" };
 
 interface Options {
   readonly entry?: IssueBoardEntry;
@@ -104,6 +108,10 @@ interface Options {
   readonly auto?: boolean;
   /** The latest board read; one listing the issue waiting when left out. */
   readonly latest?: IssueBoardResult;
+  /** The worktree the issue's threads recorded last; none when left out. */
+  readonly issueWorktree?: IssueThreadLinks.IssueWorktree;
+  /** What `git worktree list` lists in the project, or a list that fails; none when left out. */
+  readonly listedWorktrees?: ReadonlyArray<string> | "fails";
 }
 
 type Guided = Pick<IssuePlaybookStartInput, "startWith" | "guidance">;
@@ -212,6 +220,7 @@ function harness<A, E>(
                   [projectId]: {
                     defaultModelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
                     defaultRuntimeMode: "auto-accept-edits",
+                    newWorktreesStartFromOrigin: false,
                   },
                 },
               }),
@@ -224,6 +233,18 @@ function harness<A, E>(
                   ),
               }),
               Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
+              Layer.mock(GitVcsDriver.GitVcsDriver)({
+                resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+                resolveDefaultBranchName: () => Effect.succeed("trunk"),
+                resolveCommit: ({ revision }) =>
+                  revision === "refs/remotes/origin/trunk"
+                    ? Effect.succeed({ commitSha: "abc" } as never)
+                    : Effect.fail(new Error("unknown revision") as never),
+                listWorktreePaths: () =>
+                  input.listedWorktrees === "fails"
+                    ? Effect.fail(new Error("git worktree list failed") as never)
+                    : Effect.succeed([...(input.listedWorktrees ?? [])]),
+              }),
               Layer.mock(ThreadLaunchService.ThreadLaunchService)({
                 launch: (launch) =>
                   Effect.suspend(() => {
@@ -305,6 +326,10 @@ function harness<A, E>(
                 },
               }),
               Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
+                latestWorktree: (key, id) =>
+                  Effect.succeed(
+                    key === issueKey && id === projectId ? (input.issueWorktree ?? null) : null,
+                  ),
                 listOpen: Effect.sync(
                   () =>
                     new Map([
@@ -508,6 +533,11 @@ describe("PlaybookStartService.start", () => {
       detail: "The thread could not be started; it failed during dispatch-message.",
     },
     {
+      name: "a worktree list that fails",
+      input: { playbook: "develop", issueWorktree, listedWorktrees: "fails" as const },
+      detail: "The issue's worktree could not be checked.",
+    },
+    {
       name: "a send to the open thread that fails before its prompt was accepted",
       input: {
         playbook: "develop",
@@ -520,14 +550,15 @@ describe("PlaybookStartService.start", () => {
     "refuses $name with its cause, links nothing and leaves the entry as it was",
     ({ input, detail }) =>
       Effect.gen(function* () {
-        const { result, linked, sent, stored, refreshed } = yield* start(input);
-        const claimed = "launch" in input || "send" in input;
+        const { result, launched, linked, sent, stored, refreshed } = yield* start(input);
+        const claimed = "launch" in input || "send" in input || "listedWorktrees" in input;
 
         expect(result).toMatchObject({
           _tag: "Failure",
           failure: { operation: "startPlaybook", detail },
         });
         expect(linked).toEqual([]);
+        expect(launched).toHaveLength("launch" in input ? 1 : 0);
         expect(sent).toHaveLength("send" in input ? 1 : 0);
         expect(stored?.startedBy).toBe(
           input.waitingWith === null ? "issue-playbook:earlier" : null,
@@ -536,6 +567,67 @@ describe("PlaybookStartService.start", () => {
         expect(stored?.startFailure).toBe(claimed ? detail : null);
         // Only a Start that claimed the entry changed what the listing shows.
         expect(refreshed()).toBe(claimed ? 1 : 0);
+      }),
+  );
+
+  it.effect(
+    "launches a playbook that needs a worktree in a new one from the project's default branch",
+    () =>
+      Effect.gen(function* () {
+        const { result, launched } = yield* start({
+          playbook: "isolated",
+          waitingWith: "isolated",
+        });
+
+        expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+        expect(launched[0]?.workspaceStrategy).toEqual({
+          type: "worktree",
+          baseRef: "origin/trunk",
+          startFromOrigin: false,
+        });
+      }),
+  );
+
+  it.effect.each(["isolated", "plain"])(
+    "launches playbook %s in the worktree the issue already has, also through a symlink",
+    (playbook) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dir = yield* fs.makeTempDirectoryScoped({ prefix: "t3code-issue-worktree-" });
+        yield* fs.makeDirectory(`${dir}/t3-6`);
+        yield* fs.symlink(`${dir}/t3-6`, `${dir}/linked`);
+        const recorded = { ...issueWorktree, worktreePath: `${dir}/linked` };
+
+        const { launched } = yield* start({
+          playbook,
+          waitingWith: playbook,
+          issueWorktree: recorded,
+          listedWorktrees: ["/projects/web", yield* fs.realPath(`${dir}/t3-6`)],
+        });
+
+        expect(launched[0]?.workspaceStrategy).toEqual({
+          type: "existing_worktree",
+          worktreePath: recorded.worktreePath,
+          branch: issueWorktree.branch,
+        });
+      }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect.each([
+    { playbook: "isolated", strategy: { type: "worktree", baseRef: "origin/trunk" } },
+    { playbook: "plain", strategy: { type: "root" } },
+  ])(
+    "counts a worktree git no longer lists as none for playbook $playbook",
+    ({ playbook, strategy }) =>
+      Effect.gen(function* () {
+        const { launched } = yield* start({
+          playbook,
+          waitingWith: playbook,
+          issueWorktree,
+          listedWorktrees: ["/projects/web"],
+        });
+
+        expect(launched[0]?.workspaceStrategy).toMatchObject(strategy);
       }),
   );
 

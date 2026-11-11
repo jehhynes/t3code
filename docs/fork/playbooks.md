@@ -63,13 +63,14 @@ A change to the file applies at the next board read: the server's own, every few
 Every playbook needs a `prompt`: the first message of the thread it starts. The other settings are
 optional; each one you leave out takes what a new thread in the issue's project would take.
 
-| Setting           | What it sets                                                                           |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| `prompt`          | The first message, with the issue's fields filled in                                   |
-| `modelSelection`  | The provider instance and model, as `{ "instanceId": "codex", "model": "gpt-5.4" }`    |
-| `runtimeMode`     | The permission mode: `approval-required`, `auto-accept-edits`, `auto` or `full-access` |
-| `interactionMode` | `default`, or `plan` to start in plan mode                                             |
-| `autoStart`       | `true` to [start by itself](#start-by-itself) instead of waiting for Start             |
+| Setting            | What it sets                                                                                           |
+| ------------------ | ------------------------------------------------------------------------------------------------------ |
+| `prompt`           | The first message, with the issue's fields filled in                                                   |
+| `modelSelection`   | The provider instance and model, as `{ "instanceId": "codex", "model": "gpt-5.4" }`                    |
+| `runtimeMode`      | The permission mode: `approval-required`, `auto-accept-edits`, `auto` or `full-access`                 |
+| `interactionMode`  | `default`, or `plan` to start in plan mode                                                             |
+| `autoStart`        | `true` to [start by itself](#start-by-itself) instead of waiting for Start                             |
+| `requiresWorktree` | `true` to give an issue without a worktree its own; see [Which folder](#which-folder-a-thread-runs-in) |
 
 Without `modelSelection`, the thread takes the default model for new threads in the project, and
 Start fails if there is none. Without `runtimeMode`, it takes the default permission mode. Without
@@ -110,7 +111,8 @@ Code first reads it there until you start it or it leaves that selection.
 Press **Start** to run the playbook. When the issue has an open thread, the playbook's prompt is
 sent to that thread, after its running turn ends if one is running, so the work keeps its context;
 the thread keeps its own model and modes. Otherwise Start launches the playbook's thread in the
-issue's project, in the project's own folder, linked to the issue. Either way the issue leaves the
+issue's project, linked to the issue, in the folder that
+[Which folder a thread runs in](#which-folder-a-thread-runs-in) describes. Either way the issue leaves the
 list. An issue whose repository has no T3 Code project shows that instead of Start.
 
 To tell one start what to do differently, open the arrow beside Start or Retry and choose **Start
@@ -148,6 +150,31 @@ board that is off or cannot be read keeps its issues as they were, and so does e
 leaves out leaves its selection only once T3 Code
 [confirms it is gone](issue-boards.md#when-an-issue-counts-as-gone). Starting needs the permission
 to run threads on that environment.
+
+## Which folder a thread runs in
+
+A new thread for an issue runs in the issue's worktree when it has one, whichever playbook starts
+it. The issue's worktree is the one its latest thread with a worktree ran in, also when that thread
+is settled or archived, as long as git still lists it for the project. An issue whose worktree was
+removed counts as having none.
+
+When the issue has no worktree:
+
+- A playbook with `"requiresWorktree": true` starts its thread in a new worktree, as T3 Code makes
+  one for any new thread in a worktree: from the project's default branch, with the project's
+  worktree settings (where worktrees go, branch naming, starting from origin) and its setup script.
+  That worktree is then the issue's.
+- Any other playbook starts its thread in the project's own folder.
+
+A prompt sent to the issue's open thread runs in that thread's own folder.
+
+A worktree that cannot be created fails the new thread's run, which shows the failure with its own
+Retry; the issue counts as started, as when [a start fails](#start-an-issue) once the prompt
+reached its thread. T3 Code removes a worktree it only partly made, so Retry makes it again rather
+than adding a second one. A setup script that fails shows in the thread's setup output; when T3
+Code waits for it, it also fails the run, and Retry reuses the thread's worktree. When T3 Code
+cannot tell whether the issue's worktree is still there, the start fails before any thread exists
+and the issue waits with the cause and Retry.
 
 ## Start by itself
 

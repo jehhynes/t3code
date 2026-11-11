@@ -84,6 +84,8 @@ export const IssuePlaybook = Schema.Struct({
   interactionMode: Schema.optionalKey(ProviderInteractionMode),
   /** Starts its thread itself when an issue enters its selection, instead of waiting for Start. */
   autoStart: Schema.optionalKey(Schema.Boolean),
+  /** Gives an issue without a worktree a new one; an issue's worktree serves its later threads. */
+  requiresWorktree: Schema.optionalKey(Schema.Boolean),
 });
 export type IssuePlaybook = typeof IssuePlaybook.Type;
 

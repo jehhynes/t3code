@@ -40,6 +40,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
+import { makeIssueWorkspace } from "./issueWorktree.ts";
 import { entryWaitingIn } from "./playbookEntries.ts";
 import { renderPlaybookPrompt, withGuidance } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
@@ -111,6 +112,7 @@ const make = Effect.gen(function* () {
   const issues = yield* IssueService.IssueService;
   const receipts = yield* CommandReceiptStore.CommandReceiptStoreV2;
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
+  const issueWorkspace = yield* makeIssueWorkspace;
 
   const fail = (detail: string, cause?: unknown) =>
     new IssueOperationError({
@@ -319,6 +321,12 @@ const make = Effect.gen(function* () {
         `The project has no default model, so playbook ${playbook.name} must name a modelSelection.`,
       );
     }
+    const workspaceStrategy = yield* issueWorkspace({
+      issueKey: IssueThreadLinks.issueThreadKey(entry),
+      project,
+      requiresWorktree: playbook.requiresWorktree === true,
+      startFromOrigin: settings.newWorktreesStartFromOrigin,
+    }).pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
 
     const { threadId } = yield* launches
       .launch({
@@ -328,7 +336,7 @@ const make = Effect.gen(function* () {
         modelSelection,
         runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
         interactionMode: playbook.interactionMode ?? DEFAULT_PROVIDER_INTERACTION_MODE,
-        workspaceStrategy: { type: "root" },
+        workspaceStrategy,
         initialMessage: { messageId, text, attachments: [] },
         createdBy: "user",
         creationSource: "web",
