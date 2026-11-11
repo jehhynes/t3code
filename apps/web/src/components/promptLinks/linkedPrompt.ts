@@ -18,6 +18,8 @@ export function placeLinkedPrompt(
   target: ComposerThreadTarget,
   prompt: LinkedPrompt,
   notes: ReadonlyArray<string> = [],
+  /** Fork-only (jehhynes/t3code#35): runs once the prompt is accepted; false places nothing. */
+  beforePlace?: () => Promise<boolean>,
 ): void {
   warnAboutHiddenCharacters(prompt);
   const place = () => {
@@ -28,9 +30,22 @@ export function placeLinkedPrompt(
       description: ["Read it before you send.", ...notes].join(" "),
     });
   };
+  const accept = () => {
+    if (beforePlace === undefined) return place();
+    const promptNow = () => useComposerDraftStore.getState().getComposerDraft(target)?.prompt ?? "";
+    const seen = promptNow();
+    void beforePlace()
+      .catch(() => false)
+      .then((placed) => {
+        if (!placed) return;
+        // Text written while it awaited is asked about again, not replaced.
+        if (promptNow() === seen) place();
+        else placeLinkedPrompt(target, prompt, notes);
+      });
+  };
   const existing = useComposerDraftStore.getState().getComposerDraft(target)?.prompt ?? "";
   if (existing.trim().length === 0 || existing === prompt.text) {
-    place();
+    accept();
     return;
   }
   const id = toastManager.add({
@@ -42,7 +57,7 @@ export function placeLinkedPrompt(
       children: "Replace draft",
       onClick: () => {
         toastManager.close(id);
-        place();
+        accept();
       },
     },
   });

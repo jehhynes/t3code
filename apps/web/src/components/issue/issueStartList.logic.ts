@@ -1,12 +1,17 @@
 // Fork-only: which board issues wait for Start (jehhynes/t3code#6, #7).
-import type { EnvironmentId, IssueBoardEntry, IssueBoardResult } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  IssueBoardEntry,
+  IssueBoardResult,
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
+} from "@t3tools/contracts";
 
 export interface WaitingIssue {
   readonly environmentId: EnvironmentId;
   readonly entry: IssueBoardEntry & { readonly playbook: string };
   /**
-   * The playbooks its environment's `playbooks.json` lists, in order; absent from a server that
-   * cannot start with guidance.
+   * The playbooks its environment's `playbooks.json` lists, in order; absent from a server older
+   * than jehhynes/t3code#26.
    */
   readonly playbooks: ReadonlyArray<string> | undefined;
 }
@@ -47,11 +52,34 @@ export function waitingIssues(
   );
 }
 
-/** The playbooks a guided start can use, in file order, always with the issue's own among them. */
-export function playbookChoices(issue: WaitingIssue): ReadonlyArray<string> {
-  const playbooks = issue.playbooks ?? [];
+export function otherPlaybooks(issue: WaitingIssue): ReadonlyArray<string> {
   const own = issue.entry.playbook.toLowerCase();
-  return playbooks.some((name) => name.toLowerCase() === own)
-    ? playbooks
-    : [issue.entry.playbook, ...playbooks];
+  return (issue.playbooks ?? []).filter((name) => name.toLowerCase() !== own);
+}
+
+/** Every field is set, so a reused draft keeps none of its own folder. */
+export function draftWorkspace(workspace: OrchestrationV2ThreadLaunchWorkspaceStrategy) {
+  switch (workspace.type) {
+    case "existing_worktree":
+      return {
+        envMode: "worktree" as const,
+        worktreePath: workspace.worktreePath,
+        branch: workspace.branch ?? null,
+        startFromOrigin: false,
+      };
+    case "worktree":
+      return {
+        envMode: "worktree" as const,
+        worktreePath: null,
+        branch: workspace.baseRef,
+        startFromOrigin: workspace.startFromOrigin === true,
+      };
+    case "root":
+      return {
+        envMode: "local" as const,
+        worktreePath: null,
+        branch: workspace.branch ?? null,
+        startFromOrigin: false,
+      };
+  }
 }

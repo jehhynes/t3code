@@ -14,12 +14,25 @@ import { useAtomCommand } from "~/state/use-atom-command";
 
 import { Button } from "../ui/button";
 import { Group, GroupSeparator } from "../ui/group";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
+import {
+  Menu,
+  MenuGroup,
+  MenuGroupLabel,
+  MenuItem,
+  MenuPopup,
+  MenuSeparator,
+  MenuTrigger,
+} from "../ui/menu";
 import { toastManager } from "../ui/toast";
 import { PULL_REQUEST_ROW_CLASS } from "../pullRequest/PullRequestListRow";
 import { BoardRowLines } from "./IssueBoardSection";
-import { type GuidedStart, IssueStartGuidanceDialog } from "./IssueStartGuidanceDialog";
-import { type WaitingIssue, waitingIssueKey, waitingIssues } from "./issueStartList.logic";
+import {
+  type WaitingIssue,
+  otherPlaybooks,
+  waitingIssueKey,
+  waitingIssues,
+} from "./issueStartList.logic";
+import { useIssueDraftStart } from "./useIssueDraftStart";
 
 const ROW_CLASS = cn(PULL_REQUEST_ROW_CLASS, "@container/issue-row-meta px-3 py-2.5");
 
@@ -28,18 +41,19 @@ function WaitingRow({
   environmentLabel,
   starting,
   onStart,
-  onGuidedStart,
+  onDraft,
 }: {
   issue: WaitingIssue;
   environmentLabel: string | undefined;
   starting: boolean;
   onStart: () => void;
-  onGuidedStart: (start: GuidedStart) => void;
+  /** Opens a draft with the issue's own playbook, or with `use`. */
+  onDraft: (use?: string) => void;
 }) {
-  const [guiding, setGuiding] = useState(false);
   const canStart = useAtomValue(issueEnvironment.startPlaybook.permissionAtom(issue.environmentId));
   const { entry } = issue;
   const failure = entry.startFailure ?? null;
+  const others = otherPlaybooks(issue);
   const action = failure === null ? "Start" : "Retry";
   return (
     <div className={ROW_CLASS}>
@@ -79,23 +93,26 @@ function WaitingRow({
                   <ChevronDownIcon aria-hidden />
                 </MenuTrigger>
                 <MenuPopup align="end">
-                  <MenuItem onClick={() => setGuiding(true)}>Start with guidance…</MenuItem>
+                  <MenuItem onClick={() => onDraft()}>Start with guidance…</MenuItem>
+                  {others.length === 0 ? null : (
+                    <>
+                      <MenuSeparator />
+                      <MenuGroup>
+                        <MenuGroupLabel>With another playbook</MenuGroupLabel>
+                        {others.map((name) => (
+                          <MenuItem key={name} onClick={() => onDraft(name)}>
+                            {name}…
+                          </MenuItem>
+                        ))}
+                      </MenuGroup>
+                    </>
+                  )}
                 </MenuPopup>
               </Menu>
             </>
           )}
         </Group>
       )}
-      {guiding ? (
-        <IssueStartGuidanceDialog
-          issue={issue}
-          onOpenChange={setGuiding}
-          onStart={(start) => {
-            setGuiding(false);
-            onGuidedStart(start);
-          }}
-        />
-      ) : null}
       {environmentLabel ? (
         <span className="shrink-0 text-xs text-muted-foreground">{environmentLabel}</span>
       ) : null}
@@ -118,6 +135,7 @@ export function IssueStartList({
   const startPlaybook = useAtomCommand(issueEnvironment.startPlaybook, {
     label: "issue playbook start",
   });
+  const openDraft = useIssueDraftStart();
   const [starting, setStarting] = useState<ReadonlySet<string>>(new Set());
   // The server publishes the boards again after a Start; a started issue stays hidden while its
   // environment still shows the answer it was started from.
@@ -141,12 +159,12 @@ export function IssueStartList({
   );
   if (issues.length === 0) return null;
 
-  const start = async (issue: WaitingIssue, guided: GuidedStart = {}) => {
+  const start = async (issue: WaitingIssue) => {
     const key = waitingIssueKey(issue);
     setStarting((current) => new Set([...current, key]));
     const result = await startPlaybook({
       environmentId: issue.environmentId,
-      input: { playbook: issue.entry.playbook, entry: issue.entry, ...guided },
+      input: { playbook: issue.entry.playbook, entry: issue.entry },
     });
     setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
     if (result._tag === "Success") {
@@ -161,7 +179,7 @@ export function IssueStartList({
       const failure = squashAtomCommandFailure(result);
       toastManager.add({
         type: "error",
-        title: `Could not start ${issue.entry.displayKey} with playbook ${guided.startWith ?? issue.entry.playbook}`,
+        title: `Could not start ${issue.entry.displayKey} with playbook ${issue.entry.playbook}`,
         description:
           typeof failure === "object" && failure !== null && "detail" in failure
             ? String(failure.detail)
@@ -186,7 +204,7 @@ export function IssueStartList({
               environmentLabel={environmentLabels?.get(issue.environmentId)}
               starting={starting.has(key)}
               onStart={() => void start(issue)}
-              onGuidedStart={(guided) => void start(issue, guided)}
+              onDraft={(use) => void openDraft(issue, use)}
             />
           );
         })}

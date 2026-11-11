@@ -49,7 +49,7 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
 import { makeIssueWorkspace } from "./issueWorktree.ts";
 import { entryWaitingIn } from "./playbookEntries.ts";
-import { renderPlaybookPrompt, withGuidance } from "./playbookPrompt.ts";
+import { renderPlaybookPrompt } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
 export class PlaybookStartService extends Context.Service<
@@ -340,14 +340,13 @@ const make = Effect.gen(function* () {
     project: Project,
     id: string,
     decided: Ref.Ref<Decision | null>,
-    guidance: string | undefined,
   ) {
     const open = yield* threadLinks.listOpen.pipe(
       Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
     );
     const frameId = Buffer.from(yield* random.randomBytes(6)).toString("hex");
     const { commandId, messageId } = startIds(id);
-    const text = withGuidance(renderPlaybookPrompt(playbook.prompt, entry, frameId), guidance);
+    const text = renderPlaybookPrompt(playbook.prompt, entry, frameId);
 
     const thread = open.get(IssueThreadLinks.issueThreadKey(entry));
     if (thread !== undefined) {
@@ -433,11 +432,9 @@ const make = Effect.gen(function* () {
   });
 
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
-    function* ({ playbook: selection, entry: requested, startWith, guidance }, options) {
+    function* ({ playbook: selection, entry: requested }, options) {
       const auto = options?.auto === true;
-      const { playbook, errors } = yield* findPlaybook(startWith ?? selection);
-      // Another playbook runs only this start: the issue stays in the selection the rules gave it.
-      const claimedPlaybook = startWith === undefined ? playbook.name : selection;
+      const { playbook, errors } = yield* findPlaybook(selection);
       // A mistake can hand a playbook issues that are not its own, so nothing starts by itself.
       if (auto && (errors.length > 0 || playbook.autoStart !== true)) {
         return yield* fail(`Playbook ${playbook.name} does not start by itself now.`);
@@ -455,7 +452,7 @@ const make = Effect.gen(function* () {
         startedBy: `issue-playbook:${id}`,
       };
       const claimEntry = entries
-        .claim({ ...claim, playbook: claimedPlaybook, auto })
+        .claim({ ...claim, playbook: playbook.name, auto })
         .pipe(
           Effect.mapError((cause) =>
             fail("Which issues wait for Start could not be saved.", cause),
@@ -465,7 +462,7 @@ const make = Effect.gen(function* () {
       // found a mistake, an unreadable account, or the board off or failed.
       const claimed: Effect.Effect<IssueBoardEntry | null, IssueOperationError> = auto
         ? issues.withLatestBoard((latest) => {
-            const current = entryWaitingIn(latest, claim.issueKey, claimedPlaybook);
+            const current = entryWaitingIn(latest, claim.issueKey, playbook.name);
             return current === undefined || current.projectId === null
               ? Effect.succeed(null)
               : claimEntry.pipe(Effect.map((ok) => (ok ? current : null)));
@@ -481,14 +478,13 @@ const make = Effect.gen(function* () {
                 Effect.flatMap(
                   Option.match({
                     onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
-                    onSome: (project) =>
-                      sendOrLaunch(playbook, entry, project, id, decided, guidance),
+                    onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
                   }),
                 ),
               )
             : Effect.fail(
                 fail(
-                  `This issue is not waiting for playbook ${claimedPlaybook}; refresh the Issues page.`,
+                  `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
                 ),
               ),
         // A Start that fails or is interrupted before its thread holds the prompt leaves the issue

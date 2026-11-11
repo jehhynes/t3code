@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { playbookChoices, waitingIssues } from "./issueStartList.logic";
+import { otherPlaybooks, draftWorkspace, waitingIssues } from "./issueStartList.logic";
 
 const env = "env-1" as EnvironmentId;
 
@@ -102,14 +102,37 @@ describe("waitingIssues", () => {
   });
 });
 
-describe("playbookChoices", () => {
+describe("otherPlaybooks", () => {
   it.each([
-    { own: "Ship", playbooks: ["develop", "ship", "other"], choices: ["develop", "ship", "other"] },
-    // The issue's own playbook has since gained a mistake, so the file no longer lists it.
-    { own: "ship", playbooks: ["develop", "other"], choices: ["ship", "develop", "other"] },
-  ])("lists $playbooks for an issue of $own as $choices", ({ own, playbooks, choices }) => {
+    { own: "Ship", playbooks: ["develop", "ship", "other"], others: ["develop", "other"] },
+    { own: "ship", playbooks: undefined, others: [] },
+  ])("lists $others besides $own", ({ own, playbooks, others }) => {
     expect(
-      playbookChoices({ environmentId: env, entry: { ...entry("1"), playbook: own }, playbooks }),
-    ).toEqual(choices);
+      otherPlaybooks({ environmentId: env, entry: { ...entry("1"), playbook: own }, playbooks }),
+    ).toEqual(others);
+  });
+});
+
+describe("draftWorkspace", () => {
+  it.each([
+    {
+      workspace: { type: "existing_worktree", worktreePath: "/w/t3-6" } as const,
+      draft: { envMode: "worktree", worktreePath: "/w/t3-6", branch: null, startFromOrigin: false },
+    },
+    {
+      workspace: { type: "worktree", baseRef: "origin/main", startFromOrigin: true } as const,
+      draft: {
+        envMode: "worktree",
+        worktreePath: null,
+        branch: "origin/main",
+        startFromOrigin: true,
+      },
+    },
+    {
+      workspace: { type: "root" } as const,
+      draft: { envMode: "local", worktreePath: null, branch: null, startFromOrigin: false },
+    },
+  ])("opens a $workspace.type draft with every folder field set", ({ workspace, draft }) => {
+    expect(draftWorkspace(workspace)).toEqual(draft);
   });
 });

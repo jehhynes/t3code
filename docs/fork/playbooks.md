@@ -115,14 +115,29 @@ issue's project, linked to the issue, in the folder that
 [Which folder a thread runs in](#which-folder-a-thread-runs-in) describes. Either way the issue leaves the
 list. An issue whose repository has no T3 Code project shows that instead of Start.
 
-To tell one start what to do differently, open the arrow beside Start or Retry and choose **Start
-with guidance…**. Write your guidance, and when `playbooks.json` has more than one playbook you can
-choose another one for this start; the issue's own is selected. Start then runs as Start does, with
-the chosen playbook's prompt and settings, and your guidance added after the prompt and a blank
-line exactly as you wrote it: `{{issue.…}}` fields in it are not filled in. Another playbook
-changes only this start: the issue stays in its own selection, so it does not wait or start there
-again. The guidance is not kept: when the start fails, Retry runs the issue's own playbook without
-it.
+To change a start before it runs, open the arrow beside Start or Retry and choose **Start with
+guidance…**. T3 Code opens a new thread in the issue's project, not yet started, with the
+playbook's prompt in the composer, its issue fields filled in as Start fills them, and the model,
+permission mode and folder Start would use. Edit the prompt, change the model, mode or folder, or
+add attachments as in any new thread, then press Send: the thread is linked to the issue and the
+issue leaves the list, as after Start. When `playbooks.json` has more than one playbook, the menu
+also lists the others under **With another playbook**: the draft then takes that playbook's prompt
+and settings, and the issue stays in its own selection, so it does not wait or start there again.
+A draft does not take a playbook's `interactionMode`, because the composer has no plan mode; start
+such a playbook with Start.
+
+- When the issue has an open thread, the prompt goes into that thread's composer instead, asking
+  first when the composer already has text. The thread keeps its own model, modes and folder, and
+  the next message you send in that thread, whatever its text, counts as the issue's start.
+- Nothing starts until you send. Discarding the draft leaves the issue waiting, and so does a send
+  that T3 Code refuses, which the draft shows as any draft does. Once T3 Code has accepted your
+  message, the issue counts as started even when the thread's run then fails, as when
+  [a start fails](#start-an-issue) once the prompt reached its thread.
+- Until you send, the issue still waits, so Start, another client or a playbook that starts by
+  itself can start it first; sending the draft then starts an ordinary thread, not linked to the
+  issue.
+- A draft opened before T3 Code restarts no longer counts: sending it starts an ordinary thread and
+  the issue still waits.
 
 When a start fails, where it shows depends on how far it got:
 
@@ -166,7 +181,8 @@ When the issue has no worktree:
   That worktree is then the issue's.
 - Any other playbook starts its thread in the project's own folder.
 
-A prompt sent to the issue's open thread runs in that thread's own folder.
+A prompt sent to the issue's open thread runs in that thread's own folder. A draft from Start with guidance opens in
+the folder a new thread would run in, and you can change it before you send.
 
 A worktree that cannot be created fails the new thread's run, which shows the failure with its own
 Retry; the issue counts as started, as when [a start fails](#start-an-issue) once the prompt
