@@ -15,6 +15,7 @@ import { useAtomCommand } from "~/state/use-atom-command";
 import { Badge } from "../ui/badge";
 import { Switch } from "../ui/switch";
 import { toastManager } from "../ui/toast";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
   PULL_REQUEST_ROW_CLASS,
   PULL_REQUEST_ROW_NUMBER_CLASS,
@@ -65,7 +66,13 @@ function groupBoard(entries: ReadonlyArray<IssueBoardEntry>): ReadonlyArray<Boar
     }));
 }
 
-export function BoardRowLines({ entry }: { entry: IssueBoardEntry }) {
+export function BoardRowLines({
+  entry,
+  failure,
+}: {
+  entry: IssueBoardEntry;
+  failure?: string | null | undefined;
+}) {
   return (
     <>
       <IssueStateGlyph state={entry.state} />
@@ -98,6 +105,14 @@ export function BoardRowLines({ entry }: { entry: IssueBoardEntry }) {
         meta={
           <>
             <span className="truncate">{entry.scope}</span>
+            {failure ? (
+              <Tooltip>
+                <TooltipTrigger render={<span className="truncate text-destructive" />}>
+                  {failure}
+                </TooltipTrigger>
+                <TooltipPopup>{failure}</TooltipPopup>
+              </Tooltip>
+            ) : null}
             {entry.blockers.length > 0 ? (
               <span className="truncate text-warning-foreground">
                 Blocked by {entry.blockers.map((blocker) => blocker.displayKey).join(", ")}

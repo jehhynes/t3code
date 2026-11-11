@@ -961,14 +961,16 @@ describe("IssueService", () => {
         ],
       });
       const waiting = (result: IssueBoardResult) =>
-        result.boards.flatMap((board) => board.entries.map((entry) => entry.waitingPlaybook));
+        result.boards.flatMap((board) =>
+          board.entries.map((entry) => [entry.waitingPlaybook, entry.startFailure]),
+        );
 
       // A subscriber with nothing published yet starts the first read.
       const subscribed = yield* Deferred.make<void>();
       const published = yield* Effect.forkChild(
         service.subscribeBoard.pipe(
           Stream.tap(() => Deferred.succeed(subscribed, undefined)),
-          Stream.take(2),
+          Stream.take(3),
           Stream.runCollect,
         ),
       );
@@ -977,7 +979,7 @@ describe("IssueService", () => {
       yield* Deferred.succeed(proceed, undefined);
       const first = yield* Fiber.join(joined);
       expect(reads).toBe(1);
-      expect(waiting(first)).toEqual(["develop"]);
+      expect(waiting(first)).toEqual([["develop", null]]);
 
       // A Start's claim reaches subscribers without another GitHub read.
       yield* Deferred.await(subscribed);
@@ -989,8 +991,18 @@ describe("IssueService", () => {
         }),
       ).toBe(true);
       yield* service.refreshWaiting;
+      yield* store.release({
+        issueKey: "github github.com acme/web 1",
+        startedBy: "issue-playbook:1",
+        failure: "The launch failed.",
+      });
+      yield* service.refreshWaiting;
       const results = [...(yield* Fiber.join(published))];
-      expect(results.map(waiting)).toEqual([["develop"], [null]]);
+      expect(results.map(waiting)).toEqual([
+        [["develop", null]],
+        [[null, null]],
+        [["develop", "The launch failed."]],
+      ]);
       expect(reads).toBe(1);
     }).pipe(
       Effect.provide(

@@ -14,7 +14,14 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     const issueKey = "github github.com acme/web 1";
     const enter = (playbook: string | null) =>
       store.reconcile(() => [
-        { issueKey, board: "acme/1", playbook, startedBy: null, autoTried: false },
+        {
+          issueKey,
+          board: "acme/1",
+          playbook,
+          startedBy: null,
+          autoTried: false,
+          startFailure: null,
+        },
       ]);
 
     const entered = yield* enter("develop");
@@ -24,6 +31,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       playbook: "develop",
       startedBy: null,
       autoTried: false,
+      startFailure: null,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -36,14 +44,35 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     yield* enter("develop");
     const second = { issueKey, playbook: "develop", startedBy: "issue-playbook:c" };
     assert.isTrue(yield* store.claim(second));
-    yield* store.release(first);
-    assert.strictEqual((yield* store.list).get(issueKey)?.startedBy, second.startedBy);
-    yield* store.release(second);
-    assert.strictEqual((yield* store.list).get(issueKey)?.startedBy, null);
+    yield* store.release({ ...first, failure: "stale" });
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      startedBy: second.startedBy,
+      startFailure: null,
+    });
+    // A failed Start keeps its cause; a later one with no cause, as when interrupted, keeps it too.
+    yield* store.release({ ...second, failure: "The launch failed." });
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      startedBy: null,
+      startFailure: "The launch failed.",
+    });
+    const retry = { ...second, startedBy: "issue-playbook:c2" };
+    assert.isTrue(yield* store.claim(retry));
+    yield* store.release({ ...retry, failure: null });
+    assert.strictEqual((yield* store.list).get(issueKey)?.startFailure, "The launch failed.");
+    assert.isTrue(yield* store.claim(retry));
+    yield* store.release({ ...retry, failure: "The link failed." });
+    assert.strictEqual((yield* store.list).get(issueKey)?.startFailure, "The link failed.");
 
     // Names compare beyond ASCII, as selection compares them.
     yield* store.reconcile(() => [
-      { issueKey, board: "acme/1", playbook: "Équipe", startedBy: null, autoTried: false },
+      {
+        issueKey,
+        board: "acme/1",
+        playbook: "Équipe",
+        startedBy: null,
+        autoTried: false,
+        startFailure: null,
+      },
     ]);
     assert.isTrue(
       yield* store.claim({ issueKey, playbook: "équipe", startedBy: "issue-playbook:d" }),
@@ -58,7 +87,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     const auto = { issueKey, playbook: "develop", startedBy: "issue-playbook:e", auto: true };
     assert.isTrue(yield* store.claim(auto));
     assert.isTrue((yield* store.list).get(issueKey)?.autoTried);
-    yield* store.release(auto);
+    yield* store.release({ ...auto, failure: null });
     assert.isFalse(yield* store.claim({ ...auto, startedBy: "issue-playbook:f" }));
     const manual = { issueKey, playbook: "develop", startedBy: "issue-playbook:g" };
     assert.isTrue(yield* store.claim(manual));
@@ -68,6 +97,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       playbook: "develop",
       startedBy: manual.startedBy,
       autoTried: true,
+      startFailure: null,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);

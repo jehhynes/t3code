@@ -81,6 +81,7 @@ const row = (key: string, autoTried = false): IssuePlaybookEntries.PlaybookEntry
   playbook: "deploy",
   startedBy: null,
   autoTried,
+  startFailure: null,
 });
 
 describe("autoStartEntries", () => {

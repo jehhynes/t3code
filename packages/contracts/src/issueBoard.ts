@@ -45,6 +45,11 @@ export const IssueBoardEntry = Schema.Struct({
    * a playbook's selection, until it is started or leaves. Absent from a server older than this.
    */
   waitingPlaybook: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
+  /**
+   * Why the last start of the entry the issue waits with failed, or none. Absent from a server
+   * older than this.
+   */
+  startFailure: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 

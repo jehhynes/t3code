@@ -111,9 +111,13 @@ Press **Start** to run the playbook. When the issue has an open thread, the play
 sent to that thread, after its running turn ends if one is running, so the work keeps its context;
 the thread keeps its own model and modes. Otherwise Start launches the playbook's thread in the
 issue's project, in the project's own folder, linked to the issue. Either way the issue leaves the
-list. An issue whose repository has no T3 Code project shows that instead of Start. A Start that
-fails says why, and the issue stays so you can press Start again; a thread that starts and then
-fails shows its failure in the thread, as any thread does.
+list. An issue whose repository has no T3 Code project shows that instead of Start.
+
+When a start fails, the issue stays under **Waiting to start** with the cause on its row, and its
+button reads **Retry**, which starts it as Start does. Every client shows the cause, also after a
+reload or a restart of T3 Code, until a start succeeds or the issue leaves the selection it failed
+in; an issue that enters a selection again shows none. Only the last failure is kept. A thread
+that starts and then fails shows its failure in the thread, as any thread does.
 
 Issues enter and leave selections when T3 Code reads the boards, and only while it can tell: a
 board that is off or cannot be read keeps its issues as they were, and so does every issue while
@@ -131,8 +135,8 @@ with the Issues page closed and no client connected.
 
 - Each entry starts once. After its thread starts, the issue is not started again while it stays
   in the selection, also after you settle the thread or restart T3 Code.
-- A start that fails leaves the issue under **Waiting to start**, where you can press Start. T3
-  Code does not try it again by itself; the server log says why it failed.
+- A start that fails leaves the issue under **Waiting to start** with its cause and **Retry**, as a
+  failed Start does. T3 Code does not try it again by itself.
 - Nothing starts by itself while `playbooks.json` has a mistake or your GitHub account cannot be
   read, nor from a board that is off or could not be read. Once you fix it, the issues that entered
   meanwhile start once.

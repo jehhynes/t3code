@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { IssueTrackerKind, type IssueBoard, type IssueBoardEntry } from "@t3tools/contracts";
 
 import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybookEntries.ts";
-import { reconcilePlaybookEntries, waitingPlaybook } from "./playbookEntries.ts";
+import { reconcilePlaybookEntries, startFailure, waitingPlaybook } from "./playbookEntries.ts";
 
 const earlier = "2026-11-09T12:00:00.000Z";
 const started = "issue-playbook:earlier";
@@ -56,7 +56,16 @@ const row = (
   startedBy: string | null,
   boardKey = "acme/1",
   autoTried = false,
-): PlaybookEntryRow => ({ issueKey: key(number), board: boardKey, playbook, startedBy, autoTried });
+  startFailure: string | null = null,
+): PlaybookEntryRow => ({
+  issueKey: key(number),
+  board: boardKey,
+  playbook,
+  startedBy,
+  autoTried,
+  startFailure,
+});
+const failed = "The project has no default model.";
 
 describe("reconcilePlaybookEntries", () => {
   it.each<{
@@ -91,7 +100,10 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moves to another selection waits with it, open thread or not, untried",
-      rows: [row("1", "develop", started, "acme/1", true), row("2", "develop", started)],
+      rows: [
+        row("1", "develop", started, "acme/1", true),
+        row("2", "develop", null, "acme/1", true, failed),
+      ],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
       writes: [row("1", "ship", null), row("2", "ship", null)],
     },
@@ -99,7 +111,7 @@ describe("reconcilePlaybookEntries", () => {
       name: "an issue that leaves every selection, or the board, leaves its entry",
       rows: [
         row("1", "develop", started),
-        row("2", "develop", null, "acme/1", true),
+        row("2", "develop", null, "acme/1", true, failed),
         row("3", null, null),
       ],
       boards: [board(1, [entry("1", null)])],
@@ -131,9 +143,9 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moved to another board follows it, keeping its entry",
-      rows: [row("1", "develop", started, "acme/1", true)],
+      rows: [row("1", "develop", null, "acme/1", true, failed)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", started, "acme/2", true)],
+      writes: [row("1", "develop", null, "acme/2", true, failed)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
@@ -149,5 +161,12 @@ describe("reconcilePlaybookEntries", () => {
     expect(waitingPlaybook(row("1", "develop", started))).toBeNull();
     expect(waitingPlaybook(row("1", null, null))).toBeNull();
     expect(waitingPlaybook(undefined)).toBeNull();
+  });
+
+  it("shows a failed start's cause only while the entry waits", () => {
+    expect(startFailure(row("1", "develop", null, "acme/1", false, failed))).toBe(failed);
+    expect(startFailure(row("1", "develop", started, "acme/1", false, failed))).toBeNull();
+    expect(startFailure(row("1", "develop", null))).toBeNull();
+    expect(startFailure(undefined)).toBeNull();
   });
 });

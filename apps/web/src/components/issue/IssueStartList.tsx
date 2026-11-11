@@ -5,7 +5,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoardResult } from "@t3tools/contracts";
-import { PlayIcon } from "lucide-react";
+import { PlayIcon, RotateCcwIcon } from "lucide-react";
 import { useState } from "react";
 
 import { cn } from "~/lib/utils";
@@ -33,9 +33,11 @@ function WaitingRow({
 }) {
   const canStart = useAtomValue(issueEnvironment.startPlaybook.permissionAtom(issue.environmentId));
   const { entry } = issue;
+  const failure = entry.startFailure ?? null;
+  const action = failure === null ? "Start" : "Retry";
   return (
     <div className={ROW_CLASS}>
-      <BoardRowLines entry={entry} />
+      <BoardRowLines entry={entry} failure={failure} />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">
           No T3 Code project for {entry.scope}
@@ -45,11 +47,13 @@ function WaitingRow({
           variant="outline"
           size="xs"
           disabled={starting || !canStart}
-          title={canStart ? `Start playbook ${entry.playbook}` : "You cannot start threads here."}
+          title={
+            canStart ? `${action} playbook ${entry.playbook}` : "You cannot start threads here."
+          }
           onClick={onStart}
         >
-          <PlayIcon aria-hidden />
-          Start
+          {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
+          {action}
         </Button>
       )}
       {environmentLabel ? (

@@ -24,6 +24,11 @@ const PlaybookEntryRow = Schema.Struct({
   startedBy: Schema.NullOr(Schema.String),
   /** Whether the server tried to start this entry by itself; a try is never repeated. */
   autoTried: Schema.BooleanFromBit,
+  /**
+   * Why the entry's last start failed, or null; it counts only while the entry waits, because the
+   * entry waits again only through another failed start or a new entry, which replace it.
+   */
+  startFailure: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -48,10 +53,14 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       /** A start by the server itself, which claims only an entry it has not tried. */
       readonly auto?: boolean;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
-    /** Makes the entry wait again while this claim still holds it. */
+    /**
+     * Makes the entry wait again while this claim still holds it, with why its start failed; a
+     * start with no cause, as an interrupted one, keeps the cause before it.
+     */
     readonly release: (input: {
       readonly issueKey: string;
       readonly startedBy: string;
+      readonly failure: string | null;
     }) => Effect.Effect<void, IssuePlaybookEntriesRepositoryError>;
   }
 >()("t3/persistence/IssuePlaybookEntries/IssuePlaybookEntriesRepository") {}
@@ -68,7 +77,7 @@ const make = Effect.gen(function* () {
     Result: PlaybookEntryRow,
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
-        started_by AS "startedBy", auto_tried AS "autoTried"
+        started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure"
       FROM issue_playbook_entries
     `,
   });
@@ -86,16 +95,19 @@ const make = Effect.gen(function* () {
         const next = new Map(rows);
         for (const row of writes) {
           yield* sql`
-            INSERT INTO issue_playbook_entries (issue_key, board, playbook, started_by, auto_tried)
+            INSERT INTO issue_playbook_entries (
+              issue_key, board, playbook, started_by, auto_tried, start_failure
+            )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
-              ${row.autoTried ? 1 : 0}
+              ${row.autoTried ? 1 : 0}, ${row.startFailure}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
               playbook = excluded.playbook,
               started_by = excluded.started_by,
-              auto_tried = excluded.auto_tried
+              auto_tried = excluded.auto_tried,
+              start_failure = excluded.start_failure
           `;
           next.set(row.issueKey, row);
         }
@@ -137,7 +149,8 @@ const make = Effect.gen(function* () {
     release: Effect.fn("IssuePlaybookEntriesRepository.release")(
       function* (input) {
         yield* sql`
-          UPDATE issue_playbook_entries SET started_by = NULL
+          UPDATE issue_playbook_entries
+          SET started_by = NULL, start_failure = COALESCE(${input.failure}, start_failure)
           WHERE issue_key = ${input.issueKey} AND started_by = ${input.startedBy}
         `;
       },

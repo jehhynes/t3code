@@ -86,6 +86,7 @@ import Migration0080 from "./Migrations/080_ScheduledTaskThreadMode.ts";
 import IssueBoardSourcesSchema from "./Migrations/unnumbered/IssueBoardSources.ts";
 import IssuePlaybookEntriesSchema from "./Migrations/unnumbered/IssuePlaybookEntries.ts";
 import IssuePlaybookEntriesAutoTriedSchema from "./Migrations/unnumbered/IssuePlaybookEntriesAutoTried.ts";
+import IssuePlaybookEntriesStartFailureSchema from "./Migrations/unnumbered/IssuePlaybookEntriesStartFailure.ts";
 import IssueTrackerBindingsSchema from "./Migrations/unnumbered/IssueTrackerBindings.ts";
 
 const migrationEntries = [
@@ -180,6 +181,7 @@ const unnumberedSchemaSteps = [
   IssueBoardSourcesSchema,
   IssuePlaybookEntriesSchema,
   IssuePlaybookEntriesAutoTriedSchema,
+  IssuePlaybookEntriesStartFailureSchema,
 ];
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

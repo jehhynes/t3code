@@ -133,6 +133,7 @@ function harness<A, E>(
           playbook: waitingWith ?? "develop",
           startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
           autoTried: false,
+          startFailure: null,
         },
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
@@ -360,6 +361,8 @@ describe("PlaybookStartService.start", () => {
         expect(stored?.startedBy).toBe(
           input.waitingWith === null ? "issue-playbook:earlier" : null,
         );
+        // Only a start that claimed the entry keeps its cause on the issue.
+        expect(stored?.startFailure).toBe("launch" in input ? detail : null);
         // Only a Start that claimed the entry changed what the listing shows.
         expect(refreshed()).toBe("launch" in input ? 1 : 0);
       }),
@@ -407,7 +410,7 @@ describe("PlaybookStartService.start", () => {
             expect((yield* stored)?.startedBy).not.toBeNull();
             yield* Fiber.interrupt(started);
 
-            expect((yield* stored)?.startedBy).toBeNull();
+            expect(yield* stored).toMatchObject({ startedBy: null, startFailure: null });
           }),
       );
     }),
@@ -458,7 +461,11 @@ describe("PlaybookStartService.start", () => {
         failure: { detail: "The issue's project no longer exists." },
       });
       // It waits for Start, and the server does not try it again.
-      expect(failed.stored).toMatchObject({ startedBy: null, autoTried: true });
+      expect(failed.stored).toMatchObject({
+        startedBy: null,
+        autoTried: true,
+        startFailure: "The issue's project no longer exists.",
+      });
       expect(failed.refreshed()).toBe(1);
 
       const started = yield* start({ playbook: "deploy", waitingWith: "deploy", auto: true });
@@ -502,12 +509,16 @@ describe("PlaybookStartService.start", () => {
         commandId: CommandId.make("link"),
         commandType: "thread.issue.link",
       });
-      const { result, launched } = yield* start({
+      const { result, launched, stored } = yield* start({
         playbook: "develop",
         link: () => Effect.fail(failure),
       });
 
       expect(launched).toHaveLength(1);
+      expect(stored).toMatchObject({
+        startedBy: null,
+        startFailure: "The thread started but could not be linked to the issue.",
+      });
       expect(result).toMatchObject({
         _tag: "Failure",
         failure: {

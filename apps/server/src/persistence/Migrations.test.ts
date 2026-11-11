@@ -175,6 +175,23 @@ describe("runMigrations", () => {
         WHERE type = 'table' AND name IN ('issue_tracker_bindings', 'issue_board_sources')
       `;
       assert.strictEqual(tables.length, 2);
+
+      // A database from before #19 keeps its entries and gains the column.
+      yield* sql`
+        INSERT INTO issue_playbook_entries (issue_key, board, playbook, started_by, auto_tried)
+        VALUES ('github github.com acme/web 1', 'acme/1', 'develop', NULL, 1)
+      `;
+      yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN start_failure`;
+      yield* runMigrations();
+      yield* runMigrations();
+      assert.deepStrictEqual(yield* history, migrationManifest);
+      assert.deepStrictEqual(
+        yield* sql`
+          SELECT playbook, auto_tried AS "autoTried", start_failure AS "startFailure"
+          FROM issue_playbook_entries
+        `,
+        [{ playbook: "develop", autoTried: 1, startFailure: null }],
+      );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );
 });

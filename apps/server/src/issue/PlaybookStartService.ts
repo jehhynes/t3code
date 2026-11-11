@@ -12,6 +12,7 @@ import {
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { resolveNewThreadModelSelection } from "@t3tools/shared/usageLimits";
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
 import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as DateTime from "effect/DateTime";
@@ -256,20 +257,28 @@ const make = Effect.gen(function* () {
                   `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
                 ),
               ),
-        // A Start that fails or is interrupted leaves the issue waiting. Either way every client
-        // is shown the entry as it now is before Start answers.
+        // A Start that fails or is interrupted leaves the issue waiting, with the failure's cause.
+        // Either way every client is shown the entry as it now is before Start answers.
         (entry, exit) =>
           entry === null
             ? Effect.void
             : (Exit.isFailure(exit)
-                ? entries.release(claim).pipe(
-                    Effect.catchCause((cause) =>
-                      Effect.logError("A failed Start left its issue started", {
-                        ...claim,
-                        cause,
-                      }),
-                    ),
-                  )
+                ? entries
+                    .release({
+                      ...claim,
+                      failure: Cause.findErrorOption(exit.cause).pipe(
+                        Option.map((error) => error.detail),
+                        Option.getOrNull,
+                      ),
+                    })
+                    .pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logError("A failed Start left its issue started", {
+                          ...claim,
+                          cause,
+                        }),
+                      ),
+                    )
                 : Effect.void
               ).pipe(Effect.andThen(issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true })))),
       );

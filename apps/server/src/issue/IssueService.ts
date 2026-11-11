@@ -61,7 +61,12 @@ import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { readBoards } from "./issueBoard.ts";
-import { reconcilePlaybookEntries, recordedByBoard, waitingPlaybook } from "./playbookEntries.ts";
+import {
+  reconcilePlaybookEntries,
+  recordedByBoard,
+  startFailure,
+  waitingPlaybook,
+} from "./playbookEntries.ts";
 import {
   PLAYBOOKS_FILE,
   needsViewer,
@@ -561,12 +566,14 @@ const make = Effect.gen(function* () {
         ...candidate,
         entries: candidate.entries.map((entry) => {
           const key = IssueThreadLinks.issueThreadKey(entry);
-          const row = rows.get(key);
+          const decided = rows.get(key);
+          const row = decided?.board === boardKey ? decided : undefined;
           return {
             ...entry,
             hasOpenThread: open.has(key),
             // Only on the board whose read decided it, so Start takes that board's fields.
-            waitingPlaybook: row?.board === boardKey ? waitingPlaybook(row) : null,
+            waitingPlaybook: waitingPlaybook(row),
+            startFailure: startFailure(row),
           };
         }),
       };

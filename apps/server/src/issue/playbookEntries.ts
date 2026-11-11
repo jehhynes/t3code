@@ -12,6 +12,10 @@ const samePlaybook = (a: string | null, b: string | null) =>
 export const waitingPlaybook = (row: PlaybookEntryRow | undefined): string | null =>
   row !== undefined && row.startedBy === null ? row.playbook : null;
 
+/** Why the start of the entry the issue waits with last failed, or null (jehhynes/t3code#19). */
+export const startFailure = (row: PlaybookEntryRow | undefined): string | null =>
+  waitingPlaybook(row) === null ? null : (row?.startFailure ?? null);
+
 /** A board's read confirms each of these before it leaves one out (jehhynes/t3code#15). */
 export function recordedByBoard(
   rows: ReadonlyMap<string, PlaybookEntryRow>,
@@ -89,18 +93,32 @@ export function reconcilePlaybookEntries(input: {
         // An issue already worked on when first seen does not wait.
         startedBy: entry.playbook !== null && entry.hasOpenThread ? OPEN_THREAD : null,
         autoTried: false,
+        startFailure: null,
       });
     } else if (!deciding.has(row.board)) {
       continue;
     } else if (!samePlaybook(row.playbook, entry.playbook)) {
-      writes.push({ issueKey, board, playbook: entry.playbook, startedBy: null, autoTried: false });
+      writes.push({
+        issueKey,
+        board,
+        playbook: entry.playbook,
+        startedBy: null,
+        autoTried: false,
+        startFailure: null,
+      });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
     }
   }
   for (const row of input.rows.values()) {
     if (row.playbook !== null && deciding.has(row.board) && !listed.has(row.issueKey)) {
-      writes.push({ ...row, playbook: null, startedBy: null, autoTried: false });
+      writes.push({
+        ...row,
+        playbook: null,
+        startedBy: null,
+        autoTried: false,
+        startFailure: null,
+      });
     }
   }
   return writes;
