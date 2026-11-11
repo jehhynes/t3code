@@ -98,7 +98,7 @@ export const cases = [
   {
     id: "returning-handled",
     source:
-      "jehhynes/t3code#100: a returning issue whose old comments ask for work an earlier thread handled, and whose newer comment asks something else. Claude Haiku chose fix in 3 of 3 samples without the earlier-work line, and in 3 of 6 on its first wording, which now names the issue's text and comments as background.",
+      "jehhynes/t3code#100: a returning issue whose old comments ask for work an earlier thread handled, and whose newer comment asks something else. Claude Haiku chose fix in 3 of 3 samples without the earlier-work line, and in 3 of 6 on its first wording, which now names the issue's text and comments as background. jehhynes/t3code#102: the line names the earlier thread's playbook, fix, which must not pull the choice back to it.",
     expected: "answer",
     issue: issue({
       key: "107",
@@ -111,12 +111,13 @@ export const cases = [
       ],
     }),
     // The first two comments came before the earlier thread's first turn; the third after it.
-    earlier: { at: "2026-11-02T12:00:00.000Z", nothingNew: false },
+    // That thread was fix's, named in the line (jehhynes/t3code#102); it must not pull the choice.
+    earlier: { at: "2026-11-02T12:00:00.000Z", nothingNew: false, playbook: "fix" },
   },
   {
     id: "returning-new-failure",
     source:
-      "jehhynes/t3code#100 control: a returning issue whose newer comment asks for other work than its handled question",
+      "jehhynes/t3code#100 control: a returning issue whose newer comment asks for other work than its handled question. jehhynes/t3code#102: the line names the earlier thread's playbook, answer.",
     expected: "fix",
     issue: issue({
       key: "108",
@@ -127,6 +128,24 @@ export const cases = [
         "Since today's update, clicking Export shows a blank screen and the console says `TypeError: rows is undefined`.",
       ],
     }),
-    earlier: { at: "2026-11-01T12:00:00.000Z", nothingNew: false },
+    // The earlier thread was answer's (jehhynes/t3code#102); the new failure still needs fix.
+    earlier: { at: "2026-11-01T12:00:00.000Z", nothingNew: false, playbook: "answer" },
+  },
+  {
+    id: "returning-same-work",
+    source:
+      "jehhynes/t3code#102 control: a returning issue whose newer comment asks again for the work the named earlier playbook did, so naming it must not push the choice away",
+    expected: "fix",
+    issue: issue({
+      key: "109",
+      title: "Export crashes on large reports",
+      body: "Exporting a report with more than 5,000 rows shows a blank screen. The console says `RangeError: Maximum call stack size exceeded`.",
+      comments: [
+        "Same crash here with 8,000 rows.",
+        "Since today's release it crashes again for 6,000 rows, same `RangeError` in the console.",
+      ],
+    }),
+    // The first comment came before fix's earlier thread; the second after it.
+    earlier: { at: "2026-11-01T12:00:00.000Z", nothingNew: false, playbook: "fix" },
   },
 ];

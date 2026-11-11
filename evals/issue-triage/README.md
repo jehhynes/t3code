@@ -1,6 +1,6 @@
 # Issue triage
 
-Checks the triage classifier's prompt (`apps/server/src/issue/triagePrompt.ts`) with the server's Claude text generation on invented issues: two with the same status and labels that ask for different work, one that says too little, two whose text tries to steer the classifier to a playbook outside the list or out of its frame, and two that return after an earlier thread handled their older comments. Run from `evals/` with a configured Claude login:
+Checks the triage classifier's prompt (`apps/server/src/issue/triagePrompt.ts`) with the server's Claude text generation on invented issues: two with the same status and labels that ask for different work, one that says too little, three whose text tries to steer the classifier to a playbook outside the list or out of its frame, and three that return after an earlier thread, named with the playbook that started it, handled their older comments: two whose newer activity asks for other work, and one that asks for that playbook's work again. Run from `evals/` with a configured Claude login:
 
 ```sh
 pnpm issue-triage --model <id> --out runs/triage
@@ -11,6 +11,6 @@ pnpm issue-triage --model <id> --out runs/triage-new --baseline runs/triage/resu
 | --------------------------------------------------------------- | ------------------ |
 | Claude Haiku, the server's default Claude text generation model | `claude-haiku-5-5` |
 
-Use `--case <id> --samples 1` for a smoke run. By default the eight cases run three times each: twenty-four short calls. It refuses to run where a managed Claude MCP config would give the classifier tools, as the server does. A sample passes when the server would accept its answer as the case's expected playbook; a case fails when half or more of its samples fail. `summary.json` names the failing cases.
+Use `--case <id> --samples 1` for a smoke run. By default the nine cases run three times each: twenty-seven short calls. It refuses to run where a managed Claude MCP config would give the classifier tools, as the server does. A sample passes when the server would accept its answer as the case's expected playbook; a case fails when half or more of its samples fail. `summary.json` names the failing cases.
 
 Add a case to `cases.ts` when a real issue is classified wrongly, with the issue's text invented anew, its source and the expected choice; add a control beside a steering case.
