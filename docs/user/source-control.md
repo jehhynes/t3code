@@ -357,6 +357,10 @@ An issue can be kept with a thread the way a pull request can: open it beside th
 links in the conversation open there) and use **Link to this thread** in its header; **Unlink**
 undoes it. Linked issues are listed in the thread's details beside its pull requests, with their
 last known state. Agents link the issues they work on with the `link_issue` tool.
+<!-- Fork-only (jehhynes/t3code#92) -->
+
+Agents list a project's issues with `list_issues`, and its `involvement` (`assigned`, `authored`
+or `mentioned`) narrows them to yours, as the Issues page's filter does.
 
 Writing to a tracker over a remote connection requires the `source-control:write` scope.
 

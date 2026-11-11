@@ -6,6 +6,7 @@ import {
   SourceControlProviderKind,
   ThreadId,
   type IssueDetail,
+  type IssueListInput, // Fork-only (jehhynes/t3code#92)
   type OrchestrationProjectShell,
   type ThreadIssueLink,
 } from "@t3tools/contracts";
@@ -138,6 +139,7 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (
   issues: ReadonlyArray<ThreadIssueLink> = [],
 ) {
   const links = yield* Ref.make<ReadonlyArray<ThreadIssueService.LinkThreadIssueInput>>([]);
+  const listed = yield* Ref.make<ReadonlyArray<IssueListInput>>([]); // Fork-only (jehhynes/t3code#92)
   const layerDependencies = Layer.mergeAll(
     Layer.mock(ProjectService.ProjectService)({
       getShell: (id) => Effect.succeed(id === PROJECT_ID ? Option.some(project) : Option.none()),
@@ -148,6 +150,17 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (
     }),
     Layer.mock(IssueService.IssueService)({
       detail: () => Effect.succeed(detail),
+      // Fork-only (jehhynes/t3code#92)
+      list: (input) =>
+        Ref.update(listed, (recorded) => [...recorded, input]).pipe(
+          Effect.as({
+            viewers: {},
+            trackers: [],
+            entries: [],
+            errors: [{ projectId: PROJECT_ID, projectTitle: "Project", message: "Not signed in." }],
+            nextCursors: { "github.com t3tools/t3code": "next" },
+          }),
+        ),
       resolveUrl: (url) =>
         Effect.succeed({
           projectId: PROJECT_ID,
@@ -188,7 +201,7 @@ const makeHarness = Effect.fn("makeIssuesToolkitHarness")(function* (
       Effect.provideService(McpInvocationContext.McpInvocationContext, invocation(capabilities)),
       Effect.provide(layerDependencies),
     );
-  return { links, call };
+  return { links, listed, call };
 });
 
 describe("issue toolkit handlers", () => {
@@ -199,6 +212,30 @@ describe("issue toolkit handlers", () => {
         .call("list_thread_issues", {}, ["pull-requests"])
         .pipe(Effect.flip);
       expect(error).toMatchObject({ _tag: "McpCapabilityUnavailableError", capability: "issues" });
+    }),
+  );
+
+  // Fork-only (jehhynes/t3code#92)
+  it.effect("passes involvement to the issue list only when given", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness();
+      for (const involvement of ["assigned", "authored", "mentioned"] as const) {
+        const result = yield* harness.call("list_issues", { involvement });
+        expect(result.errors).toEqual([{ projectId: PROJECT_ID, message: "Not signed in." }]);
+      }
+      const cursors = { "github.com t3tools/t3code": "page-2" };
+      const unfiltered = yield* harness.call("list_issues", { cursors });
+      expect(unfiltered.nextCursors).toEqual({ "github.com t3tools/t3code": "next" });
+      expect(yield* Ref.get(harness.listed)).toEqual([
+        { projectId: PROJECT_ID, state: "open", involvement: "assigned" },
+        { projectId: PROJECT_ID, state: "open", involvement: "authored" },
+        { projectId: PROJECT_ID, state: "open", involvement: "mentioned" },
+        { projectId: PROJECT_ID, state: "open", cursors },
+      ]);
+      const refused = yield* harness
+        .call("list_issues", { involvement: "all" } as never)
+        .pipe(Effect.flip);
+      expect(refused.message).toContain('"assigned" | "authored" | "mentioned"');
     }),
   );
 

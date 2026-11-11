@@ -171,6 +171,7 @@ const make = Effect.gen(function* () {
         const result = yield* issues.list({
           projectId: project.id,
           state: input.state ?? "open",
+          ...(input.involvement === undefined ? {} : { involvement: input.involvement }), // Fork-only (jehhynes/t3code#92)
           ...(input.query === undefined ? {} : { query: input.query }),
           ...(input.limit === undefined ? {} : { limit: input.limit }),
           ...(input.cursors === undefined ? {} : { cursors: input.cursors }),

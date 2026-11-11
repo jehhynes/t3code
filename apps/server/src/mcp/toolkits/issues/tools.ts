@@ -250,6 +250,13 @@ const ListIssuesTool = Tool.make("list_issues", {
       ProjectId.annotate({ description: "Project to list. Omit for this thread's project." }),
     ),
     state: Schema.optional(IssueListState.annotate({ description: "Defaults to open." })),
+    // Fork-only (jehhynes/t3code#92)
+    involvement: Schema.optional(
+      Schema.Literals(["assigned", "authored", "mentioned"]).annotate({
+        description:
+          "Only issues assigned to, opened by or mentioning me, the account T3 Code is signed in with on the host; with none, errors says so. Omit for all. mentioned lists all on GitLab and Azure DevOps.",
+      }),
+    ),
     query: Schema.optional(
       TrimmedNonEmptyString.check(Schema.isMaxLength(200)).annotate({
         description: "Free text the tracker matches itself.",
