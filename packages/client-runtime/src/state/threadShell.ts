@@ -26,6 +26,7 @@ import {
   threadKey,
   threadRefsEqual,
 } from "./entities.ts";
+import { withStageOf } from "./threadStage.ts"; // Fork-only (jehhynes/t3code#73)
 
 const EMPTY_THREADS: ReadonlyArray<OrchestrationV2ThreadShell> = Object.freeze([]);
 const EMPTY_SCOPED_THREAD_REFS: ReadonlyArray<ScopedThreadRef> = Object.freeze([]);
@@ -182,7 +183,7 @@ function sameApartFromStreaming(
   ) {
     return false;
   }
-  const before = previous.source;
+  const before = withStageOf(previous.source, next.source); // Fork-only (jehhynes/t3code#73)
   const after = next.source;
   return (
     before.itemCount > 0 === after.itemCount > 0 &&

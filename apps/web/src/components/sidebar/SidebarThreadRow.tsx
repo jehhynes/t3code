@@ -119,6 +119,7 @@ import { Menu, MenuItem, MenuItemDetail, MenuPopup, MenuSeparator, MenuTrigger }
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { MiddleTruncate } from "../ui/middle-truncate";
 import { useThreadHasUnsentDraft } from "../../composerDraftStore";
+import { ThreadStageHoverLine, ThreadStageLabel, threadStage } from "./ThreadStage"; // Fork-only (jehhynes/t3code#73)
 
 // The fields thread rows show. Provider status pushes refresh `checkedAt`,
 // status and auth on every provider; leaving those out keeps each
@@ -277,6 +278,8 @@ function SidebarThreadTooltip({
           ) : null
         }
       >
+        {/* Fork-only (jehhynes/t3code#73) */}
+        <ThreadStageHoverLine thread={thread} />
         {projectDisplayName ? (
           <div className="flex min-w-0 items-center gap-2">
             {project ? <ProjectFavicon project={project} className="size-3 shrink-0" /> : null}
@@ -714,6 +717,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const isUnread = hasUnseenCompletion({ ...thread, lastVisitedAt });
   const status = resolveSidebarThreadStatus(thread);
+  const stage = threadStage(thread); // Fork-only (jehhynes/t3code#73)
   const lastVisitedDate = lastVisitedAt === undefined ? null : parseTimestampDate(lastVisitedAt);
   const wokeAtDate = props.wokeAt === null ? null : parseTimestampDate(props.wokeAt);
   const isWoke =
@@ -1010,7 +1014,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   const accessibility = resolveSidebarRowAccessibility({
     title: thread.title,
-    statusLabel: topStatus?.label ?? null,
+    statusLabel: [topStatus?.label, stage].filter(Boolean).join(", ") || null, // Fork-only (jehhynes/t3code#73)
     projectDisplayName: props.projectDisplayName,
     isActive: props.isActive,
   });
@@ -1446,7 +1450,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               {/* Left of the status slot, the pin would slide when hover swaps the
                 label for the wider row controls. */}
               {pinIndicator}
-              {props.projectDisplayName ? (
+              {/* Fork-only (jehhynes/t3code#73): the stage takes the project name's place. */}
+              {stage !== null ? (
+                <ThreadStageLabel stage={stage} />
+              ) : props.projectDisplayName ? (
                 <span
                   className={cn("min-w-0 flex-1 truncate font-normal text-secondary-label text-xs")}
                 >
