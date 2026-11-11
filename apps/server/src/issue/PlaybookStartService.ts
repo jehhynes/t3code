@@ -299,6 +299,7 @@ const make = Effect.gen(function* () {
     playbook: IssuePlaybook,
     entry: IssueBoardEntry,
     project: Project,
+    onSeveral: "fail" | "root",
   ) {
     const settings = resolveProjectSettings(
       yield* serverSettings.getSettings.pipe(
@@ -325,13 +326,20 @@ const make = Effect.gen(function* () {
     const worktreeConfig = issueWorktreeConfig(settings, entry.scope);
     const workspaceStrategy = yield* issueWorkspace
       .strategy({
-        issueKey: IssueThreadLinks.issueThreadKey(entry),
+        entry,
         project,
         requiresWorktree: playbook.requiresWorktree === true,
         startFromOrigin: settings.newWorktreesStartFromOrigin,
         baseBranch: worktreeConfig.baseBranch,
+        onSeveral,
       })
-      .pipe(Effect.mapError((cause) => fail("The issue's worktree could not be checked.", cause)));
+      .pipe(
+        Effect.mapError((cause) =>
+          cause._tag === "IssueWorktreeError"
+            ? fail(cause.detail, cause)
+            : fail("The issue's worktree could not be checked.", cause),
+        ),
+      );
     return {
       modelSelection,
       runtimeMode: playbook.runtimeMode ?? settings.defaultRuntimeMode,
@@ -381,7 +389,7 @@ const make = Effect.gen(function* () {
       return { threadId: thread.threadId };
     }
 
-    const settings = yield* launchSettings(playbook, entry, project);
+    const settings = yield* launchSettings(playbook, entry, project, "fail");
     const { modelSelection, runtimeMode, interactionMode } = settings;
     // The issue's new worktree takes the project's names, checked before anything is made.
     const workspaceStrategy =
@@ -563,6 +571,9 @@ const make = Effect.gen(function* () {
       playbook,
       entry,
       project,
+      // Several worktrees named for the issue: the draft opens in Local mode, whose branch picker
+      // binds the one I pick.
+      "root",
     );
     return { prompt, threadId: null, modelSelection, runtimeMode, workspace: workspaceStrategy };
   });

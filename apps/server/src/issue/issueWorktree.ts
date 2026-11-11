@@ -1,6 +1,13 @@
-// Fork-only: the folder a playbook's new thread runs in (jehhynes/t3code#31), and the names of an
-// issue's new worktree (jehhynes/t3code#44).
-import type { IssueBoardEntry, IssueWorktreeConfig, Project } from "@t3tools/contracts";
+// Fork-only: the folder a playbook's new thread runs in (jehhynes/t3code#31), the names of an
+// issue's new worktree (jehhynes/t3code#44), and its existing worktree found by branch name
+// (jehhynes/t3code#51).
+import {
+  repositoryGroupingKeyOf,
+  type IssueBoardEntry,
+  type IssueWorktreeConfig,
+  type Project,
+  type VcsListRefsResult,
+} from "@t3tools/contracts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
 import { expandHomePath } from "@t3tools/provider-core/server/pathExpansion";
@@ -10,12 +17,14 @@ import * as Path from "effect/Path";
 
 import type { ThreadLaunchWorkspaceStrategy } from "../orchestration-v2/ThreadLaunchService.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
+import * as RepositoryIdentityResolver from "../project/RepositoryIdentityResolver.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { IssueWorktreeError, IssueWorktrees, type DraftWorktreeNames } from "./IssueWorktrees.ts";
 import { hasWorktreeField, renderWorktreeName } from "./issueWorktreeNames.ts";
 
 const MAX_BRANCH_BYTES = 200;
 const MAX_LEAF_BYTES = 100;
+const GITHUB_PREFIX = "github.com/";
 
 /** The project's `issueWorktrees` entry for the issue's repository, matched as GitHub matches it. */
 export function issueWorktreeConfig(
@@ -35,6 +44,7 @@ export const makeIssueWorkspace = Effect.gen(function* () {
   const path = yield* Path.Path;
   const threadLinks = yield* IssueThreadLinks.IssueThreadLinksRepository;
   const folders = yield* IssueWorktrees;
+  const repositories = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
 
   const refExists = (cwd: string, revision: string) =>
     git.resolveCommit({ cwd, revision }).pipe(
@@ -81,14 +91,67 @@ export const makeIssueWorkspace = Effect.gen(function* () {
     return listed.includes(yield* real(worktree.worktreePath)) ? worktree : null;
   });
 
+  /**
+   * The project's worktrees whose branch names the issue, `<n>-…` or `<type>/<n>-…`, as Switchboard
+   * links them (R25). A branch names an issue of the repository it is in, which for a fork
+   * checkout is its `origin`, so an issue of the other repository has none.
+   */
+  const namedWorktrees = Effect.fn("IssueWorkspace.namedWorktrees")(function* (
+    entry: IssueBoardEntry,
+    project: Project,
+  ) {
+    if (!/^\d{1,10}$/.test(entry.key)) return [];
+    const identity =
+      project.repositoryIdentity ?? (yield* repositories.resolve(project.workspaceRoot));
+    const key = identity === null ? null : repositoryGroupingKeyOf(identity).toLowerCase();
+    if (key !== `${GITHUB_PREFIX}${entry.scope.toLowerCase()}`) return [];
+    const pattern = new RegExp(`^(?:[a-z]+/)?${entry.key}-`);
+    const root = yield* real(project.workspaceRoot);
+    const found: Array<{ readonly branch: string; readonly worktreePath: string }> = [];
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      // Refreshed, because worktrees made outside T3 Code do not invalidate its cached refs.
+      const page: VcsListRefsResult = yield* git.listRefs({
+        cwd: project.workspaceRoot,
+        refKind: "local",
+        query: `${entry.key}-`,
+        limit: 200,
+        refresh: true,
+        cursor,
+      });
+      for (const ref of page.refs) {
+        if (ref.worktreePath === null || !pattern.test(ref.name)) continue;
+        // `listRefs` also gives the project's own checkout its branch.
+        if ((yield* real(ref.worktreePath)) === root) continue;
+        found.push({ branch: ref.name, worktreePath: ref.worktreePath });
+      }
+      cursor = page.nextCursor;
+    }
+    return found;
+  });
+
   const strategy = Effect.fn("IssueWorkspace.strategy")(function* (input: {
-    readonly issueKey: string;
+    readonly entry: IssueBoardEntry;
     readonly project: Project;
     readonly requiresWorktree: boolean;
     readonly startFromOrigin: boolean;
     readonly baseBranch?: string | undefined;
+    /** A start fails on more than one worktree named for the issue; a draft opens in the project's folder. */
+    readonly onSeveral: "fail" | "root";
   }) {
-    const worktree = yield* liveWorktree(input.issueKey, input.project);
+    const worktree =
+      (yield* liveWorktree(IssueThreadLinks.issueThreadKey(input.entry), input.project)) ??
+      (yield* Effect.gen(function* () {
+        const named = yield* namedWorktrees(input.entry, input.project);
+        if (named.length <= 1) return named[0] ?? null;
+        if (input.onSeveral === "root") return "several" as const;
+        return yield* new IssueWorktreeError({
+          detail: `More than one worktree has a branch for issue ${input.entry.displayKey}: ${named
+            .map((found) => `${found.branch} (${found.worktreePath})`)
+            .join(", ")}. Remove the extra ones, or use Start with guidance and pick one.`,
+        });
+      }));
+    if (worktree === "several") return { type: "root" } satisfies ThreadLaunchWorkspaceStrategy;
     if (worktree !== null) {
       return {
         type: "existing_worktree",

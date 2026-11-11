@@ -179,6 +179,23 @@ it. The issue's worktree is the one its latest thread with a worktree ran in, al
 is settled or archived, as long as git still lists it for the project. An issue whose worktree was
 removed counts as having none.
 
+When none of the issue's threads has a worktree, a worktree of the project whose branch names the
+issue is the issue's: the issue's number, after an optional lowercase `<type>/`, then `-`, such as
+`123-login-page` or `fix/123-login-page` for issue 123, as Switchboard names them. The thread
+starts in it, on its branch, as it is: T3 Code makes no worktree or branch and resets, fetches or
+renames nothing there, though the project's setup script runs in it as in any worktree. A worktree
+whose folder is gone, and the project's own folder, never count. In a fork checkout only issues
+of its `origin` repository are matched, because its branches are numbered by the fork's issues; an
+issue of the repository it was forked from gets what follows. When more than one worktree matches,
+Start fails with a cause that names them and makes nothing, and Start with guidance opens the draft
+in the project's folder (Local), where picking one of their branches in the branch picker binds
+its worktree.
+
+An adopted worktree is treated as any worktree of the issue: deleting its last thread offers to
+remove the worktree, which loses its uncommitted work; reverting a turn restores its files to that
+checkpoint; and automatic worktree cleanup, when it is on, applies to it when it is inside T3
+Code's worktrees folder.
+
 When the issue has no worktree:
 
 - A playbook with `"requiresWorktree": true` starts its thread in a new worktree, as T3 Code makes

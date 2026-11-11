@@ -134,6 +134,12 @@ interface Options {
   readonly workspaceRoot?: string;
   /** The project's local branches. */
   readonly branches?: ReadonlyArray<string>;
+  /** The project's local branches with their worktree, as `listRefs` gives them, or a read that fails. */
+  readonly refs?:
+    | ReadonlyArray<{ readonly name: string; readonly worktreePath: string | null }>
+    | "fails";
+  /** The checkout's repository and, for a fork checkout, its `origin`; `acme/web` when left out. */
+  readonly identity?: { readonly canonicalKey: string; readonly origin?: string };
   readonly checkBase?: ThreadLaunchService.ThreadLaunchService["Service"]["checkWorktreeBase"];
 }
 
@@ -235,10 +241,16 @@ function harness<A, E>(
               ),
               IssueWorktrees.layer.pipe(
                 Layer.provide(NodeServices.layer),
-                Layer.provide(
+                Layer.provideMerge(
                   Layer.mock(RepositoryIdentityResolver.RepositoryIdentityResolver)({
                     resolve: () =>
-                      Effect.succeed({ canonicalKey: "github.com/acme/web", locator: {} as never }),
+                      Effect.succeed({
+                        canonicalKey: input.identity?.canonicalKey ?? "github.com/acme/web",
+                        locator: {} as never,
+                        ...(input.identity?.origin === undefined
+                          ? {}
+                          : { origin: { canonicalKey: input.identity.origin } }),
+                      }),
                   }),
                 ),
                 Layer.provideMerge(
@@ -284,6 +296,22 @@ function harness<A, E>(
                 // Git refuses a `.lock` ref, which a safe slug can still end in.
                 execute: ({ args }) =>
                   Effect.succeed({ exitCode: args.at(-1)?.endsWith(".lock") ? 1 : 0 } as never),
+                // One ref per page, so every match beyond the first is on a later page.
+                listRefs: ({ query, cursor = 0 }) => {
+                  if (input.refs === "fails") {
+                    return Effect.fail(new Error("git for-each-ref failed") as never);
+                  }
+                  const refs = (input.refs ?? [])
+                    .filter((ref) => query === undefined || ref.name.includes(query))
+                    .map((ref) => ({ ...ref, current: false, isDefault: false }));
+                  return Effect.succeed({
+                    refs: refs.slice(cursor, cursor + 1),
+                    isRepo: true,
+                    hasPrimaryRemote: true,
+                    nextCursor: cursor + 1 < refs.length ? cursor + 1 : null,
+                    totalCount: refs.length,
+                  });
+                },
                 listWorktreePaths: () =>
                   input.listedWorktrees === "fails"
                     ? Effect.fail(new Error("git worktree list failed") as never)
@@ -558,6 +586,23 @@ describe("PlaybookStartService.start", () => {
       detail: "The issue's worktree could not be checked.",
     },
     {
+      name: "a branch list that fails",
+      input: { playbook: "develop", refs: "fails" as const },
+      detail: "The issue's worktree could not be checked.",
+    },
+    {
+      name: "more than one worktree whose branch names the issue",
+      input: {
+        playbook: "develop",
+        refs: [
+          { name: "fix/6-start", worktreePath: "/worktrees/fix-6" },
+          { name: "6-other", worktreePath: "/worktrees/6-other" },
+        ],
+      },
+      detail:
+        "More than one worktree has a branch for issue #6: fix/6-start (/worktrees/fix-6), 6-other (/worktrees/6-other). Remove the extra ones, or use Start with guidance and pick one.",
+    },
+    {
       name: "a send to the open thread that fails before its prompt was accepted",
       input: {
         playbook: "develop",
@@ -571,7 +616,8 @@ describe("PlaybookStartService.start", () => {
     ({ input, detail }) =>
       Effect.gen(function* () {
         const { result, launched, linked, sent, stored, refreshed } = yield* start(input);
-        const claimed = "launch" in input || "send" in input || "listedWorktrees" in input;
+        const claimed =
+          "launch" in input || "send" in input || "listedWorktrees" in input || "refs" in input;
 
         expect(result).toMatchObject({
           _tag: "Failure",
@@ -817,6 +863,99 @@ describe("PlaybookStartService.start", () => {
 
         expect(launched[0]?.workspaceStrategy).toMatchObject(strategy);
       }),
+  );
+
+  it.effect.each([
+    { playbook: "isolated", branch: "fix/6-start" },
+    { playbook: "plain", branch: "6-start" },
+  ])(
+    "launches playbook $playbook in the worktree whose branch $branch names the issue",
+    ({ playbook, branch }) =>
+      Effect.gen(function* () {
+        const { launched } = yield* start({
+          playbook,
+          waitingWith: playbook,
+          refs: [
+            { name: "trunk", worktreePath: "/projects/web" },
+            { name: branch, worktreePath: "/worktrees/web-6" },
+          ],
+        });
+
+        expect(launched[0]?.workspaceStrategy).toEqual({
+          type: "existing_worktree",
+          worktreePath: "/worktrees/web-6",
+          branch,
+        });
+      }),
+  );
+
+  it.effect("prefers the worktree the issue's threads used over one its branch names", () =>
+    Effect.gen(function* () {
+      const { launched } = yield* start({
+        playbook: "plain",
+        waitingWith: "plain",
+        issueWorktree,
+        listedWorktrees: [issueWorktree.worktreePath],
+        refs: [{ name: "6-other", worktreePath: "/worktrees/6-other" }],
+      });
+
+      expect(launched[0]?.workspaceStrategy).toMatchObject({
+        type: "existing_worktree",
+        worktreePath: issueWorktree.worktreePath,
+      });
+    }),
+  );
+
+  it.effect.each([
+    { playbook: "isolated", strategy: { type: "worktree", baseRef: "origin/trunk" } },
+    { playbook: "plain", strategy: { type: "root" } },
+  ])(
+    "takes no worktree whose branch names another issue or is the project's own for playbook $playbook",
+    ({ playbook, strategy }) =>
+      Effect.gen(function* () {
+        const { launched } = yield* start({
+          playbook,
+          waitingWith: playbook,
+          refs: [
+            { name: "66-other", worktreePath: "/worktrees/66-other" },
+            { name: "x-6-start", worktreePath: "/worktrees/x-6" },
+            { name: "Fix/6-start", worktreePath: "/worktrees/upper-6" },
+            { name: "6-own", worktreePath: "/projects/web" },
+            { name: "6-no-worktree", worktreePath: null },
+          ],
+        });
+
+        expect(launched[0]?.workspaceStrategy).toMatchObject(strategy);
+      }),
+  );
+
+  it.effect.each([
+    {
+      name: "the fork's own issue in a fork checkout",
+      identity: { canonicalKey: "github.com/upstream/web", origin: "github.com/acme/web" },
+      strategy: { type: "existing_worktree", worktreePath: "/worktrees/web-6" },
+    },
+    {
+      name: "not an upstream issue in a fork checkout",
+      identity: { canonicalKey: "github.com/acme/web", origin: "github.com/me/web" },
+      strategy: { type: "root" },
+    },
+    {
+      name: "not an issue of a repository on another host",
+      identity: { canonicalKey: "gitlab.com/acme/web" },
+      strategy: { type: "root" },
+    },
+  ])("matches a branch for $name", ({ identity, strategy }) =>
+    Effect.gen(function* () {
+      const { launched } = yield* start({
+        playbook: "plain",
+        waitingWith: "plain",
+        identity,
+        refs: [{ name: "6-start", worktreePath: "/worktrees/web-6" }],
+      });
+
+      expect(launched[0]?.workspaceStrategy).toMatchObject(strategy);
+    }),
   );
 
   it.effect("sends the playbook's prompt to the issue's open thread, queued behind its turn", () =>
@@ -1190,6 +1329,33 @@ describe("PlaybookStartService.prepareDraft", () => {
           branch: issueWorktree.branch,
         },
       },
+    },
+    {
+      name: "the worktree whose branch names the issue",
+      input: {
+        playbook: "plain",
+        refs: [{ name: "fix/6-start", worktreePath: "/worktrees/fix-6" }],
+      },
+      prompt: "Look at https://github.com/acme/web/issues/6.",
+      draft: {
+        workspace: {
+          type: "existing_worktree",
+          worktreePath: "/worktrees/fix-6",
+          branch: "fix/6-start",
+        },
+      },
+    },
+    {
+      name: "the project's folder, to pick from, for several worktrees named for the issue",
+      input: {
+        playbook: "isolated",
+        refs: [
+          { name: "fix/6-start", worktreePath: "/worktrees/fix-6" },
+          { name: "6-other", worktreePath: "/worktrees/6-other" },
+        ],
+      },
+      prompt: "Fix https://github.com/acme/web/issues/6.",
+      draft: { workspace: { type: "root" } },
     },
   ])("holds $name", ({ input, draft, prompt }) =>
     Effect.gen(function* () {
