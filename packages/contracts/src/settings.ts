@@ -1939,6 +1939,12 @@ export const ServerSettingsPatch = Schema.Struct({
   secretProviders: Schema.optionalKey(
     Schema.Record(SecretProviderId, Schema.NullOr(SecretProviderConfigWrite)),
   ),
+  // Fork-only (jehhynes/t3code#85): the list replaces the saved one whole.
+  githubBoards: Schema.optionalKey(Schema.Array(GitHubBoardConfig)),
+  githubBoardReadInterval: Schema.optionalKey(Schema.DurationFromMillis),
+  maxRunningIssueThreads: Schema.optionalKey(
+    Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })),
+  ),
 
   usagePriceOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, Schema.NullOr(UsageModelPriceOverride)),

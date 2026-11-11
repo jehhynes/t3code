@@ -609,6 +609,10 @@ export function applyServerSettingsPatch(
     ...(patch.defaultProjectScripts !== undefined
       ? { defaultProjectScripts: patch.defaultProjectScripts }
       : {}),
+    // Fork-only (jehhynes/t3code#85): deepMerge would turn the Duration into a plain object.
+    ...(patch.githubBoardReadInterval !== undefined
+      ? { githubBoardReadInterval: patch.githubBoardReadInterval }
+      : {}),
     ...(usageLimitSourcesPatch !== undefined
       ? {
           usageLimitSources: mergeSettingsEntries(

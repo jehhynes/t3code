@@ -19,6 +19,7 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { assert, it } from "@effect/vitest";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
@@ -486,6 +487,40 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("server settings"
       );
       assert.equal(afterProviderSave.responseStreamingMode, "paragraph");
       assert.equal(afterProviderSave.providerInstances[instanceId]?.displayName, "Kilo");
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
+
+  // Fork-only (jehhynes/t3code#85)
+  it.effect("keeps the fork keys and board fields a board save does not change (#85)", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+      yield* serverSettings.getSettings;
+      const board = { owner: "acme", number: 1, statusField: "Stage", waitForBlockers: true };
+      const issueWorktrees = { "acme/web": { branch: "{{issue.type}}/{{issue.number}}" } };
+      yield* writeFileStringAtomically({
+        filePath: config.settingsPath,
+        contents: JSON.stringify({ branchNamePrefix: "jh", issueWorktrees, githubBoards: [board] }),
+      });
+
+      yield* serverSettings.updateSettings({
+        githubBoards: [board, { owner: "acme", number: 2, statusField: "Status" }],
+      });
+      yield* serverSettings.updateSettings({
+        maxRunningIssueThreads: 3,
+        githubBoardReadInterval: Duration.seconds(120),
+      });
+
+      const saved = JSON.parse(yield* fs.readFileString(config.settingsPath));
+      assert.equal(saved.branchNamePrefix, "jh");
+      assert.deepEqual(saved.issueWorktrees, issueWorktrees);
+      assert.deepEqual(saved.githubBoards, [
+        board,
+        { owner: "acme", number: 2, statusField: "Status" },
+      ]);
+      assert.equal(saved.maxRunningIssueThreads, 3);
+      assert.equal(saved.githubBoardReadInterval, 120_000);
     }).pipe(Effect.provide(layerServerSettings())),
   );
 

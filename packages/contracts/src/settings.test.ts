@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 
 import { type CommandId, ProjectId } from "./baseSchemas.ts";
@@ -378,6 +379,28 @@ describe("ServerSettings.maxRunningIssueThreads", () => {
     expect(decodeServerSettings({ maxRunningIssueThreads: 10 }).maxRunningIssueThreads).toBe(10);
     for (const refused of [0, 11, 2.5]) {
       expect(() => decodeServerSettings({ maxRunningIssueThreads: refused })).toThrow();
+    }
+  });
+
+  // Fork-only (jehhynes/t3code#85)
+  it("is set with the boards and their read interval by the settings patch", () => {
+    const board = { owner: "acme", number: 1, statusField: "Stage", waitForBlockers: true };
+    const patch = decodeServerSettingsPatch({
+      githubBoards: [board],
+      githubBoardReadInterval: 120_000,
+      maxRunningIssueThreads: 3,
+    });
+    expect(patch.githubBoards).toEqual([board]);
+    expect(patch.githubBoardReadInterval).toEqual(Duration.seconds(120));
+    expect(patch.maxRunningIssueThreads).toBe(3);
+    for (const refused of [
+      { maxRunningIssueThreads: 0 },
+      { maxRunningIssueThreads: 11 },
+      { githubBoards: [{ owner: " ", number: 1 }] },
+      { githubBoards: [{ owner: "acme", number: 0 }] },
+      { githubBoards: [{ owner: "acme", number: 1, statusField: "" }] },
+    ]) {
+      expect(() => decodeServerSettingsPatch(refused), JSON.stringify(refused)).toThrow();
     }
   });
 });
