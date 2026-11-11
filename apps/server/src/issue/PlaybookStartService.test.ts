@@ -51,6 +51,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as IssueService from "./IssueService.ts";
+import * as IssueTriage from "./IssueTriage.ts";
 import * as IssueWorktrees from "./IssueWorktrees.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
 
@@ -96,6 +97,9 @@ const playbooks = JSON.stringify([
   { name: "plain", prompt: "Look at {{issue.url}}." },
   { name: "deploy", prompt: "Deploy {{issue.url}}.", autoStart: true },
   { name: "isolated", prompt: "Fix {{issue.url}}.", requiresWorktree: true },
+  // Fork-only (jehhynes/t3code#93)
+  { name: "triage", prompt: "Sort it.", choices: ["fix"] },
+  { name: "fix", description: "Something broken", prompt: "Fix {{issue.url}}." },
 ]);
 
 const blocker = {
@@ -167,6 +171,8 @@ interface Options {
   readonly limit?: number;
   /** Other issues the default latest read lists waiting with `develop`, each with its record. */
   readonly others?: ReadonlyArray<IssueBoardEntry>;
+  /** Whether the triage service finds the issue waiting to be classified (jehhynes/t3code#93). */
+  readonly retries?: boolean;
 }
 
 const issueKey = "github github.com acme/web 6";
@@ -201,6 +207,9 @@ function harness<A, E>(
     readonly reads: () => number;
     /** A newer read lists the issue with an open blocker on a board that waits for blockers. */
     readonly hold: Effect.Effect<void>;
+    /** Each issue the triage service was asked to classify again (jehhynes/t3code#93). */
+    readonly retried: ReadonlyArray<string>;
+    readonly entries: IssuePlaybookEntries.IssuePlaybookEntriesRepository["Service"];
     /** The issue's entry as stored now. */
     readonly stored: Effect.Effect<
       IssuePlaybookEntries.PlaybookEntryRow | undefined,
@@ -214,6 +223,7 @@ function harness<A, E>(
   const dispatched: Array<OrchestrationV2ServerCommand> = [];
   /** Threads now linked to the issue, which make it the issue's open thread. */
   const linkedThreads: Array<ThreadId> = [];
+  const retried: Array<string> = [];
   let refreshed = 0;
   let reads = 0;
   const listing = (held: boolean): IssueBoardResult => ({
@@ -274,6 +284,7 @@ function harness<A, E>(
           startQueued: input.startQueued === true,
           waitingSince: null,
           snoozedUntil: input.snoozedUntil ?? null,
+          triage: null,
         },
         ...(input.others ?? []).map((other) => ({
           issueKey: IssueThreadLinks.issueThreadKey(other),
@@ -286,6 +297,7 @@ function harness<A, E>(
           startQueued: false,
           waitingSince: null,
           snoozedUntil: null,
+          triage: null,
         })),
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
@@ -301,6 +313,8 @@ function harness<A, E>(
         sent,
         dispatched,
         refreshed: () => refreshed,
+        retried,
+        entries: store,
         reads: () => reads,
         hold: Effect.sync(() => void (latest = listing(true))),
         stored: store.list.pipe(Effect.map((rows) => rows.get(issueKey))),
@@ -538,6 +552,13 @@ function harness<A, E>(
                 ),
                 withLatestBoard: (use) =>
                   publishing.withPermits(1)(Effect.suspend(() => use(latest))),
+              }),
+              Layer.mock(IssueTriage.IssueTriage)({
+                retry: ({ playbook }) =>
+                  Effect.sync(() => {
+                    retried.push(playbook);
+                    return input.retries !== false;
+                  }),
               }),
               Layer.succeed(
                 SecureRandom.SecureRandom,
@@ -1346,6 +1367,54 @@ describe("PlaybookStartService.start", () => {
   );
 });
 
+// Fork-only (jehhynes/t3code#93)
+describe("PlaybookStartService.start on a triage playbook", () => {
+  it.effect("classifies the issue again and sends the classifier's prompt to no thread", () =>
+    Effect.gen(function* () {
+      const { result, launched, sent, retried, refreshed } = yield* start({
+        playbook: "Triage",
+        waitingWith: "triage",
+      });
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: null } });
+      expect(retried).toEqual(["triage"]);
+      expect(refreshed()).toBe(1);
+      expect(launched).toEqual([]);
+      expect(sent).toEqual([]);
+
+      const stale = yield* start({ playbook: "triage", waitingWith: "triage", retries: false });
+      expect(stale.result).toMatchObject({ _tag: "Failure" });
+      expect(stale.launched).toEqual([]);
+    }),
+  );
+
+  it.effect("starts a chosen playbook only while its triage playbook still offers it", () =>
+    Effect.gen(function* () {
+      const chosen = (playbook: string) =>
+        harness({ waitingWith: "triage" }, ({ entries, start: startWith, launched }) =>
+          Effect.gen(function* () {
+            yield* entries.setTriage({
+              issueKey,
+              triage: "triage",
+              waitingSince: null,
+              chosen: playbook,
+            });
+            return { result: yield* startWith(playbook), launched };
+          }),
+        );
+      const offered = yield* chosen("fix");
+      expect(offered.result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(offered.launched).toHaveLength(1);
+
+      const dropped = yield* chosen("plain");
+      expect(dropped.result).toMatchObject({
+        _tag: "Failure",
+        failure: { detail: "Playbook triage no longer offers plain, so it chooses again for #6." },
+      });
+      expect(dropped.launched).toEqual([]);
+    }),
+  );
+});
+
 describe("PlaybookStartService.start on a board that waits for blockers", () => {
   // The client's entry lists no blocker; the server's own latest read holds the issue.
   it.effect.each([
@@ -1718,6 +1787,28 @@ describe("PlaybookStartService.prepareDraft", () => {
         .pipe(Effect.result),
     );
 
+  // Fork-only (jehhynes/t3code#93)
+  it.effect("refuses a draft with a triage playbook's prompt, and drafts a choice's", () =>
+    Effect.gen(function* () {
+      for (const input of [
+        { playbook: "triage", waitingWith: "triage" },
+        { playbook: "develop", use: "triage" },
+      ]) {
+        expect(yield* prepare(input)).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            detail:
+              "Playbook triage chooses a playbook for the issue; pick one under With another playbook.",
+          },
+        });
+      }
+      const chosen = yield* prepare({ playbook: "triage", waitingWith: "triage", use: "fix" });
+      expect(chosen._tag === "Success" && chosen.success.prompt).toBe(
+        "Fix https://github.com/acme/web/issues/6.",
+      );
+    }),
+  );
+
   it.effect("holds the rendered prompt and the settings and folder Start would launch with", () =>
     Effect.gen(function* () {
       const result = yield* prepare({ playbook: "develop" });
@@ -1920,6 +2011,8 @@ describe("PlaybookStartService.startOnSend", () => {
       readonly messages: ReadonlyArray<OrchestrationV2ConversationMessage>;
       /** The issue gains an open blocker after the draft was named and before it is sent. */
       readonly holdBeforeSend?: boolean;
+      /** The triage playbook chose this playbook after the draft was named (jehhynes/t3code#93). */
+      readonly chosenBeforeSend?: string;
     },
   ) =>
     harness(input, (context) =>
@@ -1931,6 +2024,14 @@ describe("PlaybookStartService.startOnSend", () => {
           threadId: thread,
         });
         if (input.holdBeforeSend === true) yield* context.hold;
+        if (input.chosenBeforeSend !== undefined) {
+          yield* context.entries.setTriage({
+            issueKey,
+            triage: input.playbook ?? "develop",
+            waitingSince: null,
+            chosen: input.chosenBeforeSend,
+          });
+        }
         for (const message of input.messages) {
           yield* context.service.handleEvent(messageEvent({ ...message, threadId: thread }));
         }
@@ -2117,6 +2218,42 @@ describe("PlaybookStartService.startOnSend", () => {
 
       expect(stored).toMatchObject({ playbook: "plain", startedBy: expect.any(String) });
     }),
+  );
+
+  // Fork-only (jehhynes/t3code#93)
+  it.effect("starts the issue with a draft opened before its triage playbook chose", () =>
+    Effect.gen(function* () {
+      const { stored, linked } = yield* sent({
+        playbook: "triage",
+        waitingWith: "triage",
+        chosenBeforeSend: "fix",
+        messages: [composerMessage()],
+      });
+
+      expect(stored).toMatchObject({
+        playbook: "fix",
+        triage: "triage",
+        startedBy: `issue-playbook-draft:${draftThreadId}`,
+      });
+      expect(linked).toHaveLength(1);
+    }),
+  );
+
+  it.effect(
+    "starts nothing for a draft sent while the latest read still holds the issue under its triage playbook",
+    () =>
+      Effect.gen(function* () {
+        const { stored, linked } = yield* sent({
+          playbook: "triage",
+          waitingWith: "triage",
+          holdBeforeSend: true,
+          chosenBeforeSend: "fix",
+          messages: [composerMessage()],
+        });
+
+        expect(stored).toMatchObject({ playbook: "fix", startedBy: null });
+        expect(linked).toEqual([]);
+      }),
   );
 
   it.effect("keeps the issue started when the sent thread cannot be linked", () =>

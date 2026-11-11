@@ -99,7 +99,16 @@ export function BoardRowLines({
               </span>
             ) : null}
             {entry.playbook !== null ? (
-              <Badge variant="info" size="sm" title={`Playbook ${entry.playbook}`}>
+              <Badge
+                variant="info"
+                size="sm"
+                title={
+                  // Fork-only (jehhynes/t3code#93): the waiting row names the chosen playbook.
+                  entry.triagedBy && entry.triagedBy.toLowerCase() !== entry.playbook.toLowerCase()
+                    ? `Playbook ${entry.playbook}, chosen by ${entry.triagedBy}`
+                    : `Playbook ${entry.playbook}`
+                }
+              >
                 {entry.playbook}
               </Badge>
             ) : null}

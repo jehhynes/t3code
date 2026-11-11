@@ -52,6 +52,7 @@ import * as IssueService from "./issue/IssueService.ts";
 import * as IssueLeaveSettlement from "./issue/IssueLeaveSettlement.ts"; // Fork-only (jehhynes/t3code#57)
 import * as PlaybookAutoStart from "./issue/PlaybookAutoStart.ts";
 import * as PlaybookStartService from "./issue/PlaybookStartService.ts";
+import * as IssueTriage from "./issue/IssueTriage.ts"; // Fork-only (jehhynes/t3code#93)
 import * as IssueWorktrees from "./issue/IssueWorktrees.ts"; // Fork-only (jehhynes/t3code#44)
 import * as IssueTrackerConnections from "./issue/IssueTrackerConnections.ts";
 import * as IssueBoardSources from "./persistence/IssueBoardSources.ts";
@@ -454,6 +455,7 @@ const layerThreadIssueService = ThreadIssueService.layer.pipe(Layer.provide(laye
 
 // One instance, shared with the board timer, so Start and the timer see the same board reads.
 const layerPlaybookStartService = PlaybookStartService.layer.pipe(
+  Layer.provideMerge(IssueTriage.layer), // Fork-only (jehhynes/t3code#93): shared with the board timer.
   Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
   // Fork-only (jehhynes/t3code#44): the same instance ThreadLaunchService reads drafts from.
   Layer.provide(IssueWorktrees.layer),

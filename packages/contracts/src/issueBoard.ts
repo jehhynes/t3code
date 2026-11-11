@@ -89,6 +89,11 @@ export const IssueBoardEntry = Schema.Struct({
    * (jehhynes/t3code#86). A time that has passed no longer holds it. Absent from an older server.
    */
   snoozedUntil: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * The triage playbook whose classifier chose `waitingPlaybook`, or none (jehhynes/t3code#93).
+   * Absent from an older server.
+   */
+  triagedBy: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 
@@ -124,6 +129,13 @@ export const IssuePlaybook = Schema.Struct({
   autoStart: Schema.optionalKey(Schema.Boolean),
   /** Gives an issue without a worktree a new one; an issue's worktree serves its later threads. */
   requiresWorktree: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Makes this a triage playbook (jehhynes/t3code#93): a classifier picks one of these playbooks
+   * for each issue it selects, with `prompt` as its instructions and `modelSelection` as its model.
+   */
+  choices: Schema.optionalKey(PlaybookNames),
+  /** The classifier's one line for a playbook a triage playbook chooses; such a playbook has no rules. */
+  description: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type IssuePlaybook = typeof IssuePlaybook.Type;
 
@@ -152,6 +164,11 @@ export const IssueBoardResult = Schema.Struct({
    * Absent from a server older than this.
    */
   playbooks: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
+  /**
+   * The names of the triage playbooks among `playbooks` (jehhynes/t3code#93): an issue waiting with
+   * one is still being classified. Absent from an older server.
+   */
+  triagePlaybooks: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
 });
 export type IssueBoardResult = typeof IssueBoardResult.Type;
 

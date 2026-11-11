@@ -167,6 +167,49 @@ describe("parsePlaybooks", () => {
     });
   });
 
+  // Fork-only (jehhynes/t3code#93)
+  it("keeps a triage playbook whose choices are valid chosen-only playbooks, which rules never select", () => {
+    const parsed = parsePlaybooks(
+      JSON.stringify([
+        {
+          name: "triage",
+          rules: { status: ["Backlog"] },
+          prompt: "Sort it.\n{{ playbooks }}",
+          choices: ["Fix", "answer"],
+          modelSelection: { instanceId: "claudeAgent", model: "claude-haiku-4-5" },
+        },
+        { name: "bad-shape", prompt: "p", choices: ["fix"], autoStart: true },
+        { name: "bad-field", prompt: "Sort {{issue.title}}.", choices: ["fix"] },
+        { name: "missing", prompt: "p", choices: ["fix", "nope"] },
+        { name: "nested", prompt: "p", choices: ["triage"] },
+        { name: "plain", prompt: "p", choices: ["develop"] },
+        { name: "ruled", description: "d", rules: { status: ["Ready"] }, prompt: "p" },
+        { name: "fix", description: "Something broken", prompt: "Fix {{issue.url}}." },
+        { name: "answer", description: "A question", prompt: "Answer it.", autoStart: true },
+        { name: "unlisted", description: "Nobody chooses it", prompt: "p" },
+        { name: "develop", prompt: "Develop." },
+      ]),
+    );
+    expect(parsed.playbooks.map((playbook) => playbook.name)).toEqual([
+      "triage",
+      "fix",
+      "answer",
+      "unlisted",
+      "develop",
+    ]);
+    expect(parsed.errors).toEqual([
+      "Playbook 2 (bad-shape): a triage playbook starts no thread, so it takes no autoStart.",
+      "Playbook 3 (bad-field): a triage prompt takes only {{playbooks}}; the classifier is given the issue itself.",
+      "Playbook 7 (ruled): a playbook with a description is chosen only by triage, so it takes no rules.",
+      "Playbook missing: the choice nope is not a playbook in playbooks.json, or it has a mistake.",
+      "Playbook nested: the choice triage is a triage playbook.",
+      "Playbook plain: the choice develop has no description.",
+    ]);
+    // A playbook with a description is never picked by rules, even with none.
+    expect(selectPlaybook(parsed.playbooks, entry({ status: "Backlog" }), null)).toBe("triage");
+    expect(selectPlaybook(parsed.playbooks, entry(), null)).toBe("develop");
+  });
+
   it("gives one error and no playbooks for a file that is not a JSON list", () => {
     expect(parsePlaybooks('{"name": "develop"}')).toEqual({
       playbooks: [],

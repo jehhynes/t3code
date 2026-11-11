@@ -92,6 +92,7 @@ const row = (
   startQueued: false,
   waitingSince: null,
   snoozedUntil: null,
+  triage: null,
   ...overrides,
 });
 

@@ -100,6 +100,82 @@ edit the issue or the board writes them; the prompt then ends with a note asking
 treat that text as untrusted data. A field with no value, such as an issue with no labels, is
 left empty.
 
+## Let a classifier choose
+
+Rules cannot tell a question from a failure when both have the same status and labels. A triage
+playbook selects issues by its rules like any playbook, and then a model reads each issue and picks
+one of the playbooks you list for it:
+
+```json
+[
+  {
+    "name": "triage",
+    "rules": { "repository": ["acme/web"], "status": ["Backlog"] },
+    "prompt": "You sort issues for the acme/web team. Pick the playbook whose work the issue asks for. Choose clarify when the issue does not say what it wants.\n\n{{playbooks}}",
+    "choices": ["answer", "fix", "clarify"],
+    "modelSelection": { "instanceId": "claudeAgent", "model": "claude-haiku-5-5" }
+  },
+  {
+    "name": "answer",
+    "description": "A question someone wants answered",
+    "prompt": "Answer {{issue.url}}.",
+    "autoStart": true
+  },
+  {
+    "name": "fix",
+    "description": "Something broken to fix",
+    "prompt": "/sb-plan {{issue.number}}"
+  },
+  {
+    "name": "clarify",
+    "description": "The issue does not say what it wants",
+    "prompt": "Ask the author of {{issue.url}} what they need."
+  }
+]
+```
+
+- A playbook with `choices` is a triage playbook. Its `prompt` is the model's instructions;
+  `{{playbooks}}` there becomes one `- name: description` line per choice, and without it the
+  lines go at the end under "Choose one playbook:". Say in the prompt when to pick each choice,
+  including a fallback for an issue that is unclear.
+- Each choice is a playbook with a one-line `description` and no rules: a playbook with a
+  `description` is only ever chosen by a triage playbook, never by rules. It starts its thread
+  as any playbook does, with its own prompt, settings and `autoStart`.
+- `modelSelection` on a triage playbook names the model that chooses. Without it, the model set
+  for text generation in **Settings → Models** chooses. Only a Claude model or a text generator
+  API can choose, because they run with no tools; with another model the issue shows that cause.
+
+What the model is given: the triage prompt with its choices, the current time, and the issue's
+number, repository, URL, title, board status, assignees, labels, body and its last 5 comments with
+their authors and times. The body and each comment are cut to 2,000 characters, keeping the start
+and the end. Everything people wrote is marked as copied from the issue, and the model is told to
+use it only to choose. Its answer counts only when it names one of the choices; nothing else it
+says is kept or shown.
+
+**Anyone who can write the issue can steer which listed playbook it gets**, including one that
+starts by itself. List as choices only playbooks you are willing to have started by other people's
+text, and give `autoStart` only to those that are safe for any issue the triage playbook selects.
+
+What it costs: one model call each time an issue enters the triage playbook's selection, at most
+two at a time. A board read makes none for an issue already chosen or failed. An issue is
+classified again only when you press Retry, when it leaves and comes back, when T3 Code restarts
+during its call, or when you edit `playbooks.json` so that its choice is no longer listed.
+
+On the issue's row under **Waiting to start**:
+
+- While the model chooses, the row reads "Choosing a playbook…" and has no Start; the arrow
+  menu offers only **With another playbook**.
+- When it fails (no answer in time, an answer that names no listed playbook, an issue GitHub
+  would not give, a model that cannot choose), the row shows why with **Retry**, which asks again.
+  Nothing starts, and nothing asks again by itself.
+- Once it chose, the row names the chosen playbook; hover it to see which triage playbook chose
+  it. From then on the issue waits or starts with the chosen playbook as if rules had picked it,
+  with Start, Start with guidance, With another playbook, blockers, the limit and snooze.
+
+An issue whose repository has no T3 Code project is not classified until it has one. A snoozed
+issue is classified at the first board read after it wakes. When the issue leaves the selection
+before the model answers, or you start it from a draft meanwhile, the answer changes nothing.
+
 ## Start an issue
 
 Above the boards, **Waiting to start** lists the board issues waiting for you to start them, each
@@ -131,8 +207,8 @@ guidance…**; a row held by an open blocker has no arrow. T3 Code opens a new t
 playbook's prompt in the composer, its issue fields filled in as Start fills them, and the model,
 permission mode and folder Start would use. Edit the prompt, change the model, mode or folder, or
 add attachments as in any new thread, then press Send: the thread is linked to the issue and the
-issue leaves the list, as after Start. When `playbooks.json` has more than one playbook, the menu
-also lists the others under **With another playbook**: the draft then takes that playbook's prompt
+issue leaves the list, as after Start. When `playbooks.json` has other playbooks, the menu also
+lists them under **With another playbook**, except [triage playbooks](#let-a-classifier-choose): the draft then takes that playbook's prompt
 and settings, and the issue stays in its own selection, so it does not wait or start there again.
 A draft does not take a playbook's `interactionMode`, because the composer has no plan mode; start
 such a playbook with Start.
@@ -416,8 +492,12 @@ Your settings are untouched.
 - A playbook with a mistake, such as an unknown rule, a missing prompt or a prompt field that does
   not exist, is left out, and the others still pick their
   issues. Its issues may then fall to a later playbook, such as `other`.
+- A triage playbook is left out when it has a setting only a started thread uses (`runtimeMode`,
+  `interactionMode`, `autoStart`, `requiresWorktree`), a `description`, a prompt field other than
+  `{{playbooks}}`, or a choice that is not a valid playbook with a `description`. A playbook with
+  both a `description` and rules is left out too.
 - A file that is not valid JSON, or not a list, gives no issue a playbook.
 - When an `assignee` rule is used and the server cannot read your GitHub account, no issue gets a
   playbook.
-- While there is any mistake, the issues waiting to start stay as they were, and nothing starts
-  by itself.
+- While there is any mistake, the issues waiting to start stay as they were, nothing starts by
+  itself, and no issue is classified.

@@ -1,4 +1,5 @@
-// Fork-only: rules pick each board issue's playbook (jehhynes/t3code#5).
+// Fork-only: rules pick each board issue's playbook (jehhynes/t3code#5), and a triage playbook's
+// classifier picks among its choices (#93).
 import { IssuePlaybook, type IssueBoardEntry } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
@@ -6,7 +7,7 @@ import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Schema from "effect/Schema";
 
-import { PLAYBOOK_PROMPT_FIELDS, unknownPromptFields } from "./playbookPrompt.ts";
+import { PLAYBOOK_PROMPT_FIELDS, promptFields, unknownPromptFields } from "./playbookPrompt.ts";
 
 export const PLAYBOOKS_FILE = "playbooks.json";
 
@@ -57,7 +58,12 @@ export function parsePlaybooks(text: string): ParsedPlaybooks {
       continue;
     }
     const playbook = decoded.value;
-    const unknown = unknownPromptFields(playbook.prompt);
+    const triageMistake = triageShapeMistake(playbook);
+    if (triageMistake !== null) {
+      errors.push(`${label} (${playbook.name}): ${triageMistake}`);
+      continue;
+    }
+    const unknown = playbook.choices === undefined ? unknownPromptFields(playbook.prompt) : [];
     if (unknown.length > 0) {
       errors.push(
         `${label} (${playbook.name}): the prompt names ${unknown.map((field) => `{{${field}}}`).join(", ")}, which no issue has; use ${PLAYBOOK_PROMPT_FIELDS.map((field) => `{{${field}}}`).join(", ")}.`,
@@ -72,7 +78,70 @@ export function parsePlaybooks(text: string): ParsedPlaybooks {
     names.add(key);
     playbooks.push(playbook);
   }
-  return { playbooks, errors };
+  // Fork-only (jehhynes/t3code#93): choices are checked against the entries that are valid.
+  const valid = playbooks.filter((playbook) => {
+    const mistake = choicesMistake(playbook, playbooks);
+    if (mistake === null) return true;
+    errors.push(`Playbook ${playbook.name}: ${mistake}`);
+    return false;
+  });
+  return { playbooks: valid, errors };
+}
+
+const NOT_ON_TRIAGE = [
+  "runtimeMode",
+  "interactionMode",
+  "autoStart",
+  "requiresWorktree",
+  "description",
+] as const;
+
+/** What a single entry gets wrong as a triage playbook or a playbook triage chooses, or null. */
+function triageShapeMistake(playbook: IssuePlaybook): string | null {
+  if (playbook.choices !== undefined) {
+    const extra = NOT_ON_TRIAGE.filter((key) => playbook[key] !== undefined);
+    if (extra.length > 0) {
+      return `a triage playbook starts no thread, so it takes no ${extra.join(", ")}.`;
+    }
+    if (promptFields(playbook.prompt).some((field) => field !== "playbooks")) {
+      return `a triage prompt takes only {{playbooks}}; the classifier is given the issue itself.`;
+    }
+    return null;
+  }
+  if (playbook.description !== undefined && Object.keys(playbook.rules).length > 0) {
+    return "a playbook with a description is chosen only by triage, so it takes no rules.";
+  }
+  return null;
+}
+
+/** What a triage playbook's choices get wrong against the file's valid entries, or null. */
+function choicesMistake(
+  playbook: IssuePlaybook,
+  playbooks: ReadonlyArray<IssuePlaybook>,
+): string | null {
+  if (playbook.choices === undefined) return null;
+  for (const choice of playbook.choices) {
+    const chosen = playbooks.find((candidate) => sameName(candidate.name, choice));
+    if (chosen === undefined)
+      return `the choice ${choice} is not a playbook in ${PLAYBOOKS_FILE}, or it has a mistake.`;
+    if (chosen.choices !== undefined) return `the choice ${choice} is a triage playbook.`;
+    if (chosen.description === undefined) return `the choice ${choice} has no description.`;
+  }
+  return null;
+}
+
+const sameName = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+
+/** Whether the playbook is a triage playbook, whose classifier picks one of its choices. */
+const isTriagePlaybook = (playbook: IssuePlaybook): boolean => playbook.choices !== undefined;
+
+/** The triage playbook of this name, or undefined. */
+export function triagePlaybookNamed(
+  playbooks: ReadonlyArray<IssuePlaybook>,
+  name: string | null,
+): IssuePlaybook | undefined {
+  if (name === null) return undefined;
+  return playbooks.find((playbook) => isTriagePlaybook(playbook) && sameName(playbook.name, name));
 }
 
 /** Read whenever asked, so an edit applies at once; a missing file is no playbooks. */
@@ -140,5 +209,10 @@ export function selectPlaybook(
   entry: IssueBoardEntry,
   viewer: string | null,
 ): string | null {
-  return playbooks.find((playbook) => matches(playbook.rules, entry, viewer))?.name ?? null;
+  return (
+    playbooks.find(
+      // A playbook with a description is chosen only by triage (jehhynes/t3code#93).
+      (playbook) => playbook.description === undefined && matches(playbook.rules, entry, viewer),
+    )?.name ?? null
+  );
 }

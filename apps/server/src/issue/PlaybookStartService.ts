@@ -48,6 +48,7 @@ import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
 import * as IssueThreadSlots from "./IssueThreadSlots.ts";
+import * as IssueTriage from "./IssueTriage.ts";
 import { issueWorktreeConfig, makeIssueWorkspace } from "./issueWorktree.ts";
 import * as IssueWorktrees from "./IssueWorktrees.ts";
 import { entryWaitingIn, heldIn, snoozedUntil } from "./playbookEntries.ts";
@@ -157,6 +158,7 @@ const make = Effect.gen(function* () {
   const issueWorkspace = yield* makeIssueWorkspace;
   const issueWorktrees = yield* IssueWorktrees.IssueWorktrees;
   const slots = yield* IssueThreadSlots.make;
+  const triage = yield* IssueTriage.IssueTriage;
 
   const fail = (detail: string, cause?: unknown) =>
     new IssueOperationError({
@@ -454,7 +456,7 @@ const make = Effect.gen(function* () {
     if (playbook === undefined) {
       return yield* fail(`Playbook ${name} is not in ${PLAYBOOKS_FILE}, or it has a mistake.`);
     }
-    return { playbook, errors };
+    return { playbook, errors, playbooks };
   });
 
   const projectOf = Effect.fn("PlaybookStartService.projectOf")(function* (entry: IssueBoardEntry) {
@@ -543,13 +545,64 @@ const make = Effect.gen(function* () {
     return { threadId: null };
   });
 
+  const retryTriage = Effect.fn("PlaybookStartService.retryTriage")(function* (
+    playbook: IssuePlaybook,
+    entry: IssueBoardEntry,
+    auto: boolean,
+  ) {
+    const retried =
+      !auto &&
+      (yield* triage
+        .retry({ playbook: playbook.name, entry })
+        .pipe(
+          Effect.mapError((cause) =>
+            fail("Which issues wait for Start could not be saved.", cause),
+          ),
+        ));
+    if (!retried) {
+      return yield* fail(
+        `This issue is not waiting for playbook ${playbook.name} to choose; refresh the Issues page.`,
+      );
+    }
+    yield* issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true }));
+    return { threadId: null };
+  });
+
+  /**
+   * Refuses to start a playbook a triage playbook chose for the issue once the file no longer
+   * offers it there; the issue is classified again (jehhynes/t3code#93).
+   */
+  const refuseDroppedChoice = Effect.fn("PlaybookStartService.refuseDroppedChoice")(function* (
+    playbook: IssuePlaybook,
+    entry: IssueBoardEntry,
+    playbooks: ReadonlyArray<IssuePlaybook>,
+  ) {
+    const row = (yield* entries.list.pipe(
+      Effect.mapError((cause) => fail("Which issues wait for Start could not be read.", cause)),
+    )).get(IssueThreadLinks.issueThreadKey(entry));
+    const triage = row?.triage;
+    if (triage == null || row?.playbook?.toLowerCase() !== playbook.name.toLowerCase()) return;
+    const offered = playbooks
+      .find((candidate) => candidate.name.toLowerCase() === triage.toLowerCase())
+      ?.choices?.some((choice) => choice.toLowerCase() === playbook.name.toLowerCase());
+    if (offered !== true) {
+      return yield* fail(
+        `Playbook ${triage} no longer offers ${playbook.name}, so it chooses again for ${entry.displayKey}.`,
+      );
+    }
+  });
+
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
     function* (input, options) {
       if ("cancelQueued" in input) return yield* cancelQueued(input.playbook, input.cancelQueued);
       if ("snooze" in input) return yield* snooze(input.playbook, input.snooze, input.until);
       const { playbook: selection, entry: requested } = input;
       const auto = options?.auto === true;
-      const { playbook, errors } = yield* findPlaybook(selection);
+      const { playbook, errors, playbooks } = yield* findPlaybook(selection);
+      // Fork-only (jehhynes/t3code#93): Start or Retry on a triage playbook classifies the issue
+      // again; it never sends the classifier's instructions to a thread.
+      if (playbook.choices !== undefined) return yield* retryTriage(playbook, requested, auto);
+      yield* refuseDroppedChoice(playbook, requested, playbooks);
       // A mistake can hand a playbook issues that are not its own, so nothing starts by itself.
       if (auto && errors.length > 0) {
         return yield* fail(`Playbook ${playbook.name} does not start by itself now.`);
@@ -702,6 +755,12 @@ const make = Effect.gen(function* () {
   )(function* ({ playbook: selection, entry, use }) {
     yield* refuseHeld(selection, entry);
     const { playbook } = yield* findPlaybook(use ?? selection);
+    // Fork-only (jehhynes/t3code#93): a triage playbook's prompt is the classifier's, not a thread's.
+    if (playbook.choices !== undefined) {
+      return yield* fail(
+        `Playbook ${playbook.name} chooses a playbook for the issue; pick one under With another playbook.`,
+      );
+    }
     const project = yield* projectOf(entry);
     const open = yield* threadLinks.listOpen.pipe(
       Effect.mapError((cause) => fail("The issue's threads could not be read.", cause)),
@@ -794,10 +853,28 @@ const make = Effect.gen(function* () {
   }: IssuePlaybookStartOnSendInput) {
     const issueKey = IssueThreadLinks.issueThreadKey(entry);
     // A draft sent once its issue became held starts nothing for the issue (jehhynes/t3code#65).
+    // Fork-only (jehhynes/t3code#93): a draft opened before the classifier chose still starts the
+    // issue, and is held as the playbook it now waits with is.
     const claimed = yield* issues.withLatestBoard((latest) =>
-      heldIn(latest, issueKey, playbook).length > 0
-        ? Effect.succeed(false)
-        : entries.claim({ issueKey, playbook, startedBy: `issue-playbook-draft:${threadId}` }),
+      entries.list.pipe(
+        Effect.flatMap((rows) => {
+          const row = rows.get(issueKey);
+          const waitsWith =
+            row?.triage != null && row.triage.toLowerCase() === playbook.toLowerCase()
+              ? (row.playbook ?? playbook)
+              : playbook;
+          // The read may still list it with the triage playbook while the record has its choice.
+          return heldIn(latest, issueKey, waitsWith).length > 0 ||
+            heldIn(latest, issueKey, playbook).length > 0
+            ? Effect.succeed(false)
+            : entries.claim({
+                issueKey,
+                playbook,
+                startedBy: `issue-playbook-draft:${threadId}`,
+                orTriage: true,
+              });
+        }),
+      ),
     );
     if (!claimed) {
       return yield* Effect.logInfo(

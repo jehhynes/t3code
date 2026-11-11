@@ -26,6 +26,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           startQueued: false,
           waitingSince: entered,
           snoozedUntil: null,
+          triage: null,
         },
       ]);
 
@@ -41,6 +42,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startQueued: false,
       waitingSince: entered,
       snoozedUntil: null,
+      triage: null,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -87,6 +89,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         startQueued: false,
         waitingSince: null,
         snoozedUntil: null,
+        triage: null,
       },
     ]);
     assert.isTrue(
@@ -123,6 +126,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startQueued: false,
       waitingSince: entered,
       snoozedUntil: null,
+      triage: null,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);
@@ -200,6 +204,74 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     assert.isTrue(yield* store.setSnoozed({ ...snooze, until: wake }));
     assert.isTrue(yield* store.claim({ ...manual, startedBy: "issue-playbook-draft:n" }));
     assert.isFalse(yield* store.setSnoozed({ ...snooze, until: null }));
+  }).pipe(
+    Effect.provide(
+      IssuePlaybookEntries.layer.pipe(
+        Layer.provideMerge(NodeSqliteClient.layer({ filename: ":memory:" })),
+      ),
+    ),
+  ),
+);
+
+// Fork-only (jehhynes/t3code#93)
+it.effect("records a triage playbook's choice only for the entry it classified", () =>
+  Effect.gen(function* () {
+    yield* runMigrations();
+    const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+    const issueKey = "github github.com acme/web 1";
+    const entered = "2026-11-11T10:00:00.000Z";
+    const waiting = {
+      issueKey,
+      board: "acme/1",
+      playbook: "triage",
+      startedBy: null,
+      autoTried: false,
+      startFailure: null,
+      leftAt: null,
+      startQueued: false,
+      waitingSince: entered,
+      snoozedUntil: null,
+      triage: null,
+    };
+    yield* store.reconcile(() => [waiting]);
+    const outcome = { issueKey, triage: "Triage", waitingSince: entered };
+
+    // An answer for another entry of the issue writes nothing.
+    assert.isFalse(yield* store.setTriage({ ...outcome, waitingSince: null, chosen: "fix" }));
+    assert.isTrue(
+      yield* store.setTriage({ ...outcome, failure: "The classifier could not answer." }),
+    );
+    assert.isTrue(yield* store.setTriage({ ...outcome, failure: null }));
+    assert.isTrue(yield* store.setTriage({ ...outcome, chosen: "fix" }));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      playbook: "fix",
+      triage: "triage",
+      startFailure: null,
+      waitingSince: entered,
+    });
+    // Once chosen, it is no longer classified, and Start claims it as the chosen playbook's.
+    assert.isFalse(yield* store.setTriage({ ...outcome, chosen: "answer" }));
+    assert.isFalse(
+      yield* store.claim({ issueKey, playbook: "triage", startedBy: "issue-playbook:a" }),
+    );
+
+    // A dropped choice goes back to the triage playbook, unclassified.
+    const reset = { issueKey, triage: "triage", playbook: "Fix", waitingSince: entered };
+    assert.isFalse(yield* store.resetTriage({ ...reset, playbook: "answer" }));
+    assert.isTrue(yield* store.resetTriage(reset));
+    assert.deepInclude((yield* store.list).get(issueKey), { playbook: "triage", triage: null });
+
+    // A draft opened on the triage playbook still claims the entry after the choice.
+    assert.isTrue(yield* store.setTriage({ ...outcome, chosen: "fix" }));
+    assert.isTrue(
+      yield* store.claim({
+        issueKey,
+        playbook: "triage",
+        startedBy: "issue-playbook-draft:t",
+        orTriage: true,
+      }),
+    );
+    assert.isFalse(yield* store.resetTriage(reset));
   }).pipe(
     Effect.provide(
       IssuePlaybookEntries.layer.pipe(

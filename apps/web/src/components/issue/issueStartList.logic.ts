@@ -23,6 +23,13 @@ export interface WaitingIssue {
    * nothing holds it.
    */
   readonly hold: "starts" | "waits" | "slot" | null;
+  /**
+   * Whether a triage playbook's classifier is still `choosing` its playbook, or `failed` to, with
+   * the cause in `startFailure` (jehhynes/t3code#93); null once chosen or with no triage.
+   */
+  readonly triage: "choosing" | "failed" | null;
+  /** The triage playbooks, which no issue starts with; absent from an older server. */
+  readonly triagePlaybooks: ReadonlyArray<string> | undefined;
 }
 
 function holdOf(
@@ -77,12 +84,19 @@ export function waitingIssues(
               : entry.playbook
             : entry.waitingPlaybook;
         if (playbook === null) continue;
+        const triaging =
+          entry.triagedBy == null &&
+          (answer.triagePlaybooks ?? []).some(
+            (name) => name.toLowerCase() === playbook.toLowerCase(),
+          );
         const issue = {
           environmentId,
           entry: { ...entry, playbook },
           playbooks: answer.playbooks,
           hold: holdOf(board, entry, answer.playbookErrors),
-        };
+          triage: triaging ? (entry.startFailure == null ? "choosing" : "failed") : null,
+          triagePlaybooks: answer.triagePlaybooks,
+        } satisfies WaitingIssue;
         const key = waitingIssueKey(issue);
         if (!waiting.has(key)) waiting.set(key, issue);
       }
@@ -102,9 +116,12 @@ export function isSnoozed(issue: WaitingIssue, nowMs: number): boolean {
   return snoozedUntil != null && Date.parse(snoozedUntil) > nowMs;
 }
 
+/** The playbooks a draft can take instead, without the issue's own or a triage playbook. */
 export function otherPlaybooks(issue: WaitingIssue): ReadonlyArray<string> {
-  const own = issue.entry.playbook.toLowerCase();
-  return (issue.playbooks ?? []).filter((name) => name.toLowerCase() !== own);
+  const skipped = new Set(
+    [issue.entry.playbook, ...(issue.triagePlaybooks ?? [])].map((name) => name.toLowerCase()),
+  );
+  return (issue.playbooks ?? []).filter((name) => !skipped.has(name.toLowerCase()));
 }
 
 /** Every field is set, so a reused draft keeps none of its own folder. */

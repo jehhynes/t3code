@@ -655,7 +655,12 @@ describe("IssueService", () => {
       });
 
       const unconfigured = yield* makeService({ projects: [], trackers: [fakeTracker()] });
-      expect(yield* unconfigured.board).toEqual({ boards: [], playbookErrors: [], playbooks: [] });
+      expect(yield* unconfigured.board).toEqual({
+        boards: [],
+        playbookErrors: [],
+        playbooks: [],
+        triagePlaybooks: [], // Fork-only (jehhynes/t3code#93)
+      });
     }),
   );
 
@@ -786,6 +791,7 @@ describe("IssueService", () => {
         boards: [],
         playbookErrors: ["Playbook 1: Expected object"],
         playbooks: [],
+        triagePlaybooks: [], // Fork-only (jehhynes/t3code#93)
       });
     }).pipe(Effect.provide(NodeServices.layer)),
   );

@@ -49,6 +49,11 @@ const PlaybookEntryRow = Schema.Struct({
    * then, and a new entry clears it (jehhynes/t3code#86).
    */
   snoozedUntil: Schema.NullOr(Schema.String),
+  /**
+   * The triage playbook whose classifier chose `playbook`, or null; a new entry clears it
+   * (jehhynes/t3code#93). Until the choice, `playbook` is the triage playbook itself.
+   */
+  triage: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -83,6 +88,11 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       readonly selfStarting?: boolean;
       /** A UTC ISO time; refuses an entry snoozed past it. A draft's send passes none. */
       readonly now?: string;
+      /**
+       * A draft's send: also claims the entry when `playbook` is the triage playbook that chose
+       * its playbook since the draft opened (jehhynes/t3code#93).
+       */
+      readonly orTriage?: boolean;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Queues or takes back a Start of the issue's entry while it waits with this playbook; answers
@@ -110,6 +120,28 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
      * Makes the entry wait again while this claim still holds it, with why its start failed; a
      * start with no cause, as an interrupted one, keeps the cause before it.
      */
+    /**
+     * Records the classifier's outcome for the issue's entry while it still waits unclassified in
+     * `triage` since `waitingSince`: the chosen playbook, or why it failed, or no failure (Retry).
+     * Answers whether it wrote (jehhynes/t3code#93).
+     */
+    readonly setTriage: (
+      input: {
+        readonly issueKey: string;
+        readonly triage: string;
+        readonly waitingSince: string | null;
+      } & ({ readonly chosen: string } | { readonly failure: string | null }),
+    ) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
+    /**
+     * Puts the issue's unstarted entry that `triage` chose `playbook` for back to waiting
+     * unclassified in `triage`; answers whether it did (jehhynes/t3code#93).
+     */
+    readonly resetTriage: (input: {
+      readonly issueKey: string;
+      readonly triage: string;
+      readonly playbook: string;
+      readonly waitingSince: string | null;
+    }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     readonly release: (input: {
       readonly issueKey: string;
       readonly startedBy: string;
@@ -132,7 +164,7 @@ const make = Effect.gen(function* () {
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
         started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
         left_at AS "leftAt", start_queued AS "startQueued", waiting_since AS "waitingSince",
-        snoozed_until AS "snoozedUntil"
+        snoozed_until AS "snoozedUntil", triage AS "triage"
       FROM issue_playbook_entries
     `,
   });
@@ -152,12 +184,12 @@ const make = Effect.gen(function* () {
           yield* sql`
             INSERT INTO issue_playbook_entries (
               issue_key, board, playbook, started_by, auto_tried, start_failure, left_at,
-              start_queued, waiting_since, snoozed_until
+              start_queued, waiting_since, snoozed_until, triage
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
               ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt},
-              ${row.startQueued ? 1 : 0}, ${row.waitingSince}, ${row.snoozedUntil}
+              ${row.startQueued ? 1 : 0}, ${row.waitingSince}, ${row.snoozedUntil}, ${row.triage}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
@@ -168,7 +200,8 @@ const make = Effect.gen(function* () {
               left_at = excluded.left_at,
               start_queued = excluded.start_queued,
               waiting_since = excluded.waiting_since,
-              snoozed_until = excluded.snoozed_until
+              snoozed_until = excluded.snoozed_until,
+              triage = excluded.triage
           `;
           next.set(row.issueKey, row);
         }
@@ -186,16 +219,19 @@ const make = Effect.gen(function* () {
           autoTried: number;
           startQueued: number;
           snoozedUntil: string | null;
+          triage: string | null;
         }>`
           SELECT playbook AS "playbook", started_by AS "startedBy", auto_tried AS "autoTried",
-            start_queued AS "startQueued", snoozed_until AS "snoozedUntil"
+            start_queued AS "startQueued", snoozed_until AS "snoozedUntil", triage AS "triage"
           FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
         `;
         // Names compare as selection compares them, which SQLite's ASCII-only lower() does not.
         if (
           row === undefined ||
           row.startedBy !== null ||
-          row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
+          (row.playbook?.toLowerCase() !== input.playbook.toLowerCase() &&
+            (input.orTriage !== true ||
+              row.triage?.toLowerCase() !== input.playbook.toLowerCase())) ||
           snoozedPast(row.snoozedUntil, input.now) ||
           (input.auto === true &&
             row.startQueued === 0 &&
@@ -267,6 +303,76 @@ const make = Effect.gen(function* () {
       },
       sql.withTransaction,
       Effect.mapError(sqlError("snoozeIssuePlaybookEntry")),
+    ),
+    setTriage: Effect.fn("IssuePlaybookEntriesRepository.setTriage")(
+      function* (input) {
+        const [row] = yield* sql<{
+          playbook: string | null;
+          startedBy: string | null;
+          waitingSince: string | null;
+          triage: string | null;
+        }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy",
+            waiting_since AS "waitingSince", triage AS "triage"
+          FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
+        `;
+        if (
+          row === undefined ||
+          row.startedBy !== null ||
+          row.triage !== null ||
+          row.playbook?.toLowerCase() !== input.triage.toLowerCase() ||
+          row.waitingSince !== input.waitingSince
+        ) {
+          return false;
+        }
+        if ("chosen" in input) {
+          yield* sql`
+            UPDATE issue_playbook_entries
+            SET playbook = ${input.chosen}, triage = ${row.playbook}, start_failure = NULL
+            WHERE issue_key = ${input.issueKey}
+          `;
+        } else {
+          yield* sql`
+            UPDATE issue_playbook_entries SET start_failure = ${input.failure}
+            WHERE issue_key = ${input.issueKey}
+          `;
+        }
+        return true;
+      },
+      sql.withTransaction,
+      Effect.mapError(sqlError("triageIssuePlaybookEntry")),
+    ),
+    resetTriage: Effect.fn("IssuePlaybookEntriesRepository.resetTriage")(
+      function* (input) {
+        const [row] = yield* sql<{
+          playbook: string | null;
+          startedBy: string | null;
+          waitingSince: string | null;
+          triage: string | null;
+        }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy",
+            waiting_since AS "waitingSince", triage AS "triage"
+          FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
+        `;
+        if (
+          row === undefined ||
+          row.startedBy !== null ||
+          row.triage?.toLowerCase() !== input.triage.toLowerCase() ||
+          row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
+          row.waitingSince !== input.waitingSince
+        ) {
+          return false;
+        }
+        yield* sql`
+          UPDATE issue_playbook_entries
+          SET playbook = ${row.triage}, triage = NULL, start_failure = NULL, start_queued = 0,
+            auto_tried = 0
+          WHERE issue_key = ${input.issueKey}
+        `;
+        return true;
+      },
+      sql.withTransaction,
+      Effect.mapError(sqlError("resetIssuePlaybookEntryTriage")),
     ),
     release: Effect.fn("IssuePlaybookEntriesRepository.release")(
       function* (input) {

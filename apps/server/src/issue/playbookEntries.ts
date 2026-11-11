@@ -5,6 +5,7 @@ import {
   type IssueBoardEntry,
   type IssueBoardResult,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 
 import { boardSourceKey } from "../persistence/IssueBoardSources.ts";
 import {
@@ -51,7 +52,20 @@ export function waitingFields(
       startQueued ||
       (playbook !== null && selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false),
     snoozedUntil: playbook === null ? null : (row?.snoozedUntil ?? null),
+    triagedBy: playbook === null ? null : (row?.triage ?? null), // Fork-only (jehhynes/t3code#93)
   };
+}
+
+/**
+ * When a new entry of the issue begins to wait: the read's time, or just after the previous
+ * entry's when the clock reads no later, so each entry of an issue has its own time
+ * (jehhynes/t3code#93: an answer for an earlier entry must not match a later one).
+ */
+function nextWaitingSince(row: PlaybookEntryRow, now: string): string {
+  if (row.waitingSince === null || row.waitingSince < now) return now;
+  return DateTime.formatIso(
+    DateTime.add(DateTime.makeUnsafe(row.waitingSince), { milliseconds: 1 }),
+  );
 }
 
 /** The lowercased names of the playbooks that start by themselves. */
@@ -172,10 +186,12 @@ export function reconcilePlaybookEntries(input: {
         startQueued: false,
         waitingSince: input.now,
         snoozedUntil: null,
+        triage: null,
       });
     } else if (!deciding.has(row.board)) {
       continue;
-    } else if (!samePlaybook(row.playbook, entry.playbook)) {
+      // A classified entry stays the triage playbook's entry (jehhynes/t3code#93).
+    } else if (!samePlaybook(row.triage ?? row.playbook, entry.playbook)) {
       writes.push({
         issueKey,
         board,
@@ -185,8 +201,9 @@ export function reconcilePlaybookEntries(input: {
         startFailure: null,
         leftAt: entry.playbook === null ? input.now : row.leftAt,
         startQueued: false,
-        waitingSince: input.now,
+        waitingSince: nextWaitingSince(row, input.now),
         snoozedUntil: null,
+        triage: null,
       });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
@@ -202,8 +219,9 @@ export function reconcilePlaybookEntries(input: {
         startFailure: null,
         leftAt: input.now,
         startQueued: false,
-        waitingSince: input.now,
+        waitingSince: nextWaitingSince(row, input.now),
         snoozedUntil: null,
+        triage: null,
       });
     }
   }

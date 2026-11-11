@@ -225,15 +225,57 @@ describe("otherPlaybooks", () => {
   it.each([
     { own: "Ship", playbooks: ["develop", "ship", "other"], others: ["develop", "other"] },
     { own: "ship", playbooks: undefined, others: [] },
-  ])("lists $others besides $own", ({ own, playbooks, others }) => {
+    // Fork-only (jehhynes/t3code#93): no issue starts with a triage playbook.
+    {
+      own: "triage",
+      playbooks: ["triage", "Sort", "fix", "answer"],
+      triagePlaybooks: ["triage", "sort"],
+      others: ["fix", "answer"],
+    },
+  ])("lists $others besides $own", ({ own, playbooks, others, triagePlaybooks }) => {
     expect(
       otherPlaybooks({
         environmentId: env,
         entry: { ...entry("1"), playbook: own },
         playbooks,
         hold: null,
+        triage: null,
+        triagePlaybooks,
       }),
     ).toEqual(others);
+  });
+});
+
+// Fork-only (jehhynes/t3code#93)
+describe("triage", () => {
+  it("tells a row whose triage playbook still chooses, or failed to, from one it chose for", () => {
+    const rows = (triagePlaybooks: ReadonlyArray<string> | undefined) =>
+      waitingIssues([
+        [
+          env,
+          {
+            playbookErrors: [],
+            ...(triagePlaybooks === undefined ? {} : { triagePlaybooks }),
+            boards: [
+              board(1, [
+                entry("1", { waitingPlaybook: "Triage" }),
+                entry("2", { waitingPlaybook: "triage", startFailure: "No answer in time." }),
+                entry("3", { waitingPlaybook: "fix", triagedBy: "triage" }),
+                entry("4", { waitingPlaybook: "develop" }),
+              ]),
+            ],
+          },
+        ],
+      ]).map((issue) => [issue.entry.key, issue.triage]);
+
+    expect(rows(["triage"])).toEqual([
+      ["4", null],
+      ["3", null],
+      ["2", "failed"],
+      ["1", "choosing"],
+    ]);
+    // A server older than #93 has no triage playbooks.
+    expect(rows(undefined).map(([, triage]) => triage)).toEqual([null, null, null, null]);
   });
 });
 

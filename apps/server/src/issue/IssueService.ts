@@ -654,6 +654,7 @@ const make = Effect.gen(function* () {
         boards: withThreads(boards, open, rows, selfStartingPlaybooks(playbooks)),
         playbookErrors,
         playbooks: playbooks.map((playbook) => playbook.name),
+        triagePlaybooks: playbooks.filter((p) => p.choices !== undefined).map((p) => p.name), // Fork-only (jehhynes/t3code#93)
       };
       latestReadAt = readAt;
       yield* SubscriptionRef.set(latestBoard, result);

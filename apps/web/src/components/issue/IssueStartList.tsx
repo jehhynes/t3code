@@ -194,19 +194,80 @@ function WaitingRow({
   const failure = entry.startFailure ?? null;
   const others = otherPlaybooks(issue);
   const action = failure === null ? "Start" : "Retry";
-  const { hold } = issue;
+  // Fork-only (jehhynes/t3code#93): a triage playbook's classifier holds no start of its own.
+  const hold = issue.triage === null ? issue.hold : null;
+  const otherPlaybooksMenu =
+    others.length === 0 ? null : (
+      <MenuGroup>
+        <MenuGroupLabel>With another playbook</MenuGroupLabel>
+        {others.map((name) => (
+          <MenuItem key={name} onClick={() => onDraft(name)}>
+            {name}…
+          </MenuItem>
+        ))}
+      </MenuGroup>
+    );
   return (
     <div className={ROW_CLASS}>
       <BoardRowLines
         entry={entry}
         failure={failure}
         hold={hold === null || hold === "slot" ? null : holdText(hold, entry.blockers)}
-        note={hold === "slot" ? holdText(hold, entry.blockers) : null}
+        note={
+          issue.triage === "choosing"
+            ? "Choosing a playbook…"
+            : hold === "slot"
+              ? holdText(hold, entry.blockers)
+              : null
+        }
       />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">
           No T3 Code project for {entry.scope}
         </span>
+      ) : issue.triage !== null ? (
+        // Fork-only (jehhynes/t3code#93): Retry asks the classifier again; a draft takes a playbook I pick.
+        <Group aria-label={`Start ${entry.displayKey}`}>
+          {issue.triage === "failed" ? (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={starting || !canStart}
+              title={
+                canStart
+                  ? `Let playbook ${entry.playbook} choose again`
+                  : "You cannot start threads here."
+              }
+              onClick={onStart}
+            >
+              <RotateCcwIcon aria-hidden />
+              Retry
+            </Button>
+          ) : null}
+          {/* A held issue takes no draft, as the server refuses one. */}
+          {otherPlaybooksMenu === null ||
+          issue.hold === "waits" ||
+          issue.hold === "starts" ? null : (
+            <>
+              {issue.triage === "failed" ? <GroupSeparator /> : null}
+              <Menu>
+                <MenuTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      size="icon-xs"
+                      disabled={starting || !canStart}
+                      aria-label="Start with another playbook"
+                    />
+                  }
+                >
+                  <ChevronDownIcon aria-hidden />
+                </MenuTrigger>
+                <MenuPopup align="end">{otherPlaybooksMenu}</MenuPopup>
+              </Menu>
+            </>
+          )}
+        </Group>
       ) : hold === "starts" ? (
         entry.startQueued === true ? (
           <Button
@@ -272,17 +333,10 @@ function WaitingRow({
                 </MenuTrigger>
                 <MenuPopup align="end">
                   <MenuItem onClick={() => onDraft()}>Start with guidance…</MenuItem>
-                  {others.length === 0 ? null : (
+                  {otherPlaybooksMenu === null ? null : (
                     <>
                       <MenuSeparator />
-                      <MenuGroup>
-                        <MenuGroupLabel>With another playbook</MenuGroupLabel>
-                        {others.map((name) => (
-                          <MenuItem key={name} onClick={() => onDraft(name)}>
-                            {name}…
-                          </MenuItem>
-                        ))}
-                      </MenuGroup>
+                      {otherPlaybooksMenu}
                     </>
                   )}
                 </MenuPopup>

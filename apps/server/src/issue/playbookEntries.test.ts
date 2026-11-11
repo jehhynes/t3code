@@ -69,6 +69,7 @@ const row = (
   startQueued = false,
   waitingSince: string | null = now,
   snoozedUntil: string | null = null,
+  triage: string | null = null,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -80,7 +81,9 @@ const row = (
   startQueued,
   waitingSince,
   snoozedUntil,
+  triage,
 });
+const justAfterNow = "2026-11-11T12:00:00.001Z";
 const failed = "The project has no default model.";
 const wake = "2026-11-12T09:00:00.000Z";
 
@@ -127,8 +130,8 @@ describe("reconcilePlaybookEntries", () => {
     {
       name: "an issue that leaves every selection, or the board, leaves its entry at the read's time",
       rows: [
-        row("1", "develop", started, "acme/1", false, null, earlier),
-        row("2", "develop", null, "acme/1", true, failed, null, true, now, wake),
+        row("1", "develop", started, "acme/1", false, null, earlier, false, earlier),
+        row("2", "develop", null, "acme/1", true, failed, null, true, earlier, wake),
         row("3", null, null, "acme/1", false, null, earlier),
       ],
       boards: [board(1, [entry("1", null), entry("3", null)])],
@@ -139,7 +142,7 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that comes back waits, even with its thread still open, keeping when it left",
-      rows: [row("1", null, null, "acme/1", false, null, earlier)],
+      rows: [row("1", null, null, "acme/1", false, null, earlier, false, earlier)],
       boards: [board(1, [entry("1", "develop", true)])],
       writes: [row("1", "develop", null, "acme/1", false, null, earlier)],
     },
@@ -169,6 +172,25 @@ describe("reconcilePlaybookEntries", () => {
       rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true, earlier, wake)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
       writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true, earlier, wake)],
+    },
+    // Fork-only (jehhynes/t3code#93)
+    {
+      name: "a classified issue keeps its triage playbook's entry and its choice",
+      rows: [row("1", "fix", null, "acme/1", false, null, null, false, earlier, null, "triage")],
+      boards: [board(1, [entry("1", "Triage")])],
+      writes: [],
+    },
+    {
+      name: "a classified issue that moves or leaves drops its choice, and its new entry waits from after the old one",
+      rows: [
+        row("1", "fix", null, "acme/1", false, null, null, false, now, null, "triage"),
+        row("2", "fix", null, "acme/1", false, null, null, false, earlier, null, "triage"),
+      ],
+      boards: [board(1, [entry("1", "ship"), entry("2", null)])],
+      writes: [
+        row("1", "ship", null, "acme/1", false, null, null, false, justAfterNow),
+        row("2", null, null, "acme/1", false, null, now, false, now),
+      ],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
@@ -225,6 +247,13 @@ describe("reconcilePlaybookEntries", () => {
     // The client is sent the stored wake while the entry waits, and compares it with its own clock.
     expect(waitingFields(snoozed, new Set()).snoozedUntil).toBe(wake);
     expect(waitingFields({ ...snoozed, startedBy: started }, new Set()).snoozedUntil).toBeNull();
+  });
+
+  it("names the triage playbook that chose the waiting playbook (jehhynes/t3code#93)", () => {
+    const chosen = row("1", "fix", null, "acme/1", false, null, null, false, now, null, "triage");
+    expect(waitingFields(chosen, new Set()).triagedBy).toBe("triage");
+    expect(waitingFields({ ...chosen, startedBy: started }, new Set()).triagedBy).toBeNull();
+    expect(waitingFields(row("1", "triage", null), new Set()).triagedBy).toBeNull();
   });
 });
 
