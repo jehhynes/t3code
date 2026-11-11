@@ -17,7 +17,75 @@ query BoardFields($owner: String!, $number: Int!) {
   }
 }
 
-# `blockedBy` lists closed blockers too; the reader keeps the open ones.
+# The issue fields both board reads select. `blockedBy` lists closed blockers too; the reader keeps
+# the open ones.
+fragment BoardIssueNode on Issue {
+  number
+  title
+  url
+  state
+  stateReason
+  createdAt
+  updatedAt
+  closedAt
+  author {
+    login
+    avatarUrl
+    ... on User {
+      name
+    }
+  }
+  assignees(first: 20) {
+    nodes {
+      login
+      name
+      avatarUrl
+    }
+  }
+  labels(first: 20) {
+    nodes {
+      name
+      color
+    }
+  }
+  comments {
+    totalCount
+  }
+  repository {
+    nameWithOwner
+  }
+  blockedBy(first: 50) {
+    nodes {
+      number
+      title
+      url
+      state
+      repository {
+        nameWithOwner
+      }
+    }
+  }
+}
+
+fragment BoardProjectItem on ProjectV2Item {
+  project {
+    number
+    owner {
+      ... on Organization {
+        login
+      }
+      ... on User {
+        login
+      }
+    }
+  }
+  fieldValueByName(name: $status) {
+    ... on ProjectV2ItemFieldSingleSelectValue {
+      name
+    }
+  }
+}
+
 query BoardIssues($q: String!, $status: String!, $cursor: String) {
   search(query: $q, type: ISSUE, first: 100, after: $cursor) {
     issueCount
@@ -27,70 +95,29 @@ query BoardIssues($q: String!, $status: String!, $cursor: String) {
     }
     nodes {
       ... on Issue {
-        number
-        title
-        url
-        state
-        stateReason
-        createdAt
-        updatedAt
-        closedAt
-        author {
-          login
-          avatarUrl
-          ... on User {
-            name
-          }
-        }
-        assignees(first: 20) {
-          nodes {
-            login
-            name
-            avatarUrl
-          }
-        }
-        labels(first: 20) {
-          nodes {
-            name
-            color
-          }
-        }
-        comments {
-          totalCount
-        }
-        repository {
-          nameWithOwner
-        }
+        ...BoardIssueNode
         projectItems(first: 20) {
           nodes {
-            project {
-              number
-              owner {
-                ... on Organization {
-                  login
-                }
-                ... on User {
-                  login
-                }
-              }
-            }
-            fieldValueByName(name: $status) {
-              ... on ProjectV2ItemFieldSingleSelectValue {
-                name
-              }
-            }
+            ...BoardProjectItem
           }
         }
-        blockedBy(first: 50) {
-          nodes {
-            number
-            title
-            url
-            state
-            repository {
-              nameWithOwner
-            }
-          }
+      }
+    }
+  }
+}
+
+# Confirms an issue the search left out. `GraphQLResolver.aliased` repeats it under an alias per
+# issue, so the confirmations of one board read share a request.
+query BoardIssue($owner: String!, $name: String!, $number: Int!, $status: String!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      ...BoardIssueNode
+      projectItems(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          ...BoardProjectItem
         }
       }
     }

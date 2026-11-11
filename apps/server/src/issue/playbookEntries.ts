@@ -12,6 +12,23 @@ const samePlaybook = (a: string | null, b: string | null) =>
 export const waitingPlaybook = (row: PlaybookEntryRow | undefined): string | null =>
   row !== undefined && row.startedBy === null ? row.playbook : null;
 
+/** A board's read confirms each of these before it leaves one out (jehhynes/t3code#15). */
+export function recordedByBoard(
+  rows: ReadonlyMap<string, PlaybookEntryRow>,
+): ReadonlyMap<string, ReadonlyArray<{ readonly scope: string; readonly key: string }>> {
+  const byBoard = new Map<string, Array<{ readonly scope: string; readonly key: string }>>();
+  for (const row of rows.values()) {
+    if (row.playbook === null) continue;
+    const [tracker, host, scope, key, ...rest] = row.issueKey.split(" ");
+    if (tracker !== "github" || host !== "github.com" || !scope || !key || rest.length > 0)
+      continue;
+    const issues = byBoard.get(row.board) ?? [];
+    issues.push({ scope, key });
+    byBoard.set(row.board, issues);
+  }
+  return byBoard;
+}
+
 /**
  * The issue's entry as `result` lists it waiting with `playbook`, on a board that is on and was
  * read, or undefined; always undefined while any playbook cannot select.

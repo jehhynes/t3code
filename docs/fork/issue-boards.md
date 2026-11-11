@@ -57,3 +57,14 @@ title and number; the involvement and tracker filters do not apply to them.
 A board that is on but cannot be read says why in its section: for example, a status field that does not
 exist or is not a single-select field. GitHub search lists at most 1,000 issues, so a board with
 more open issues than that cannot be read.
+
+## When an issue counts as gone
+
+GitHub search can answer with some issues missing, for example during an outage. So when a read of
+a board leaves out an issue that is in a [playbook's selection](playbooks.md#start-an-issue) there,
+T3 Code reads that issue from GitHub on its own first. The issue has left the board only when that
+read finds it closed, no longer on the board, or not there at all, such as deleted or no longer
+readable with the server's GitHub sign-in; otherwise it stays listed, with what that read found,
+and keeps its place in its selection. When that read fails, the board's read fails
+too: its section says why, and nothing changes or starts from that board until a later read
+succeeds.

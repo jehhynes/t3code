@@ -119,9 +119,16 @@ export interface IssueTrackerApi {
     },
   ) => Effect.Effect<TrackerIssuePage, IssueTrackerError>;
 
-  /** Every open issue on a board, across its scopes; fails when the board cannot be read whole. */
+  /**
+   * Every open issue on a board, across its scopes; fails when the board cannot be read whole.
+   * Each `recorded` issue the listing leaves out is read on its own, and is left out only when
+   * that read finds it closed, missing or off the board, because a listing can be incomplete.
+   */
   readonly listBoard?: (
-    input: GitHubBoardConfig & { readonly host: string },
+    input: GitHubBoardConfig & {
+      readonly host: string;
+      readonly recorded?: ReadonlyArray<{ readonly scope: string; readonly key: string }>;
+    },
   ) => Effect.Effect<ReadonlyArray<TrackerBoardIssue>, IssueTrackerError>;
 
   /** The issue with its first page of conversation, in one read where the tracker allows. */

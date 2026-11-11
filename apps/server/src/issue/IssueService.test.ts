@@ -801,6 +801,8 @@ describe("IssueService", () => {
         ]);
         let boardFails = false;
         let viewerFails = false;
+        // The issues each read is asked to confirm if its search leaves them out.
+        let recorded: ReadonlyArray<{ scope: string; key: string }> | undefined;
         const openIssueKeys = ["github github.com acme/web 2"];
         const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
         const service = yield* makeService({
@@ -823,7 +825,7 @@ describe("IssueService", () => {
                       }),
                     )
                   : Effect.succeed("julius"),
-              listBoard: () =>
+              listBoard: (input) =>
                 boardFails
                   ? Effect.fail(
                       new IssueTrackerError({
@@ -833,14 +835,15 @@ describe("IssueService", () => {
                         detail: "Bad credentials",
                       }),
                     )
-                  : Effect.sync(() =>
-                      [...statuses].map(([key, status]) => ({
+                  : Effect.sync(() => {
+                      recorded = input.recorded;
+                      return [...statuses].map(([key, status]) => ({
                         ...issue(key),
                         scope: "acme/web",
                         status,
                         blockers: [],
-                      })),
-                    ),
+                      }));
+                    }),
             }),
           ],
         });
@@ -904,11 +907,21 @@ describe("IssueService", () => {
           ["2", null],
           ["3", "develop"],
         ]);
+        expect(recorded).toEqual([
+          { scope: "acme/web", key: "1" },
+          { scope: "acme/web", key: "2" },
+          { scope: "acme/web", key: "3" },
+        ]);
         statuses.set("2", "Ready");
         expect(yield* waiting).toEqual([
           ["1", "ship"],
           ["2", "develop"],
           ["3", "develop"],
+        ]);
+        // #2 had left every selection, so that read did not ask to confirm it.
+        expect(recorded).toEqual([
+          { scope: "acme/web", key: "1" },
+          { scope: "acme/web", key: "3" },
         ]);
       }).pipe(
         Effect.provide(

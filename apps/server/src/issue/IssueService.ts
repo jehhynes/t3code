@@ -61,7 +61,7 @@ import * as IssueBoardSources from "../persistence/IssueBoardSources.ts";
 import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
 import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { readBoards } from "./issueBoard.ts";
-import { reconcilePlaybookEntries, waitingPlaybook } from "./playbookEntries.ts";
+import { reconcilePlaybookEntries, recordedByBoard, waitingPlaybook } from "./playbookEntries.ts";
 import {
   PLAYBOOKS_FILE,
   needsViewer,
@@ -506,6 +506,12 @@ const make = Effect.gen(function* () {
     Effect.provideService(FileSystem.FileSystem, fileSystem),
   );
 
+  const entriesError = (cause: unknown) =>
+    new IssueOperationError({
+      operation: "board",
+      detail: "Which issues wait for Start could not be read or saved.",
+      cause,
+    });
   const readBoardListing = Effect.gen(function* () {
     const boards = yield* readBoardSettings("board");
     if (boards.length === 0) return { boards: [] };
@@ -513,6 +519,7 @@ const make = Effect.gen(function* () {
     if (!boards.some((candidate) => enabled.has(IssueBoardSources.boardSourceKey(candidate)))) {
       return yield* readBoards({ boards, enabled, api: null, projects: [] });
     }
+    const rows = yield* playbookEntries.list.pipe(Effect.mapError(entriesError));
     const { supported } = yield* listProjects({});
     const projectScopes = yield* Effect.forEach(
       supported,
@@ -526,17 +533,12 @@ const make = Effect.gen(function* () {
     return yield* readBoards({
       boards,
       enabled,
+      recorded: recordedByBoard(rows),
       api: registry.get(GITHUB),
       projects: projectScopes,
     });
   });
 
-  const entriesError = (cause: unknown) =>
-    new IssueOperationError({
-      operation: "board",
-      detail: "Which issues wait for Start could not be read or saved.",
-      cause,
-    });
   const readOpenThreads = threadLinks.listOpen.pipe(
     Effect.mapError(
       (cause) =>

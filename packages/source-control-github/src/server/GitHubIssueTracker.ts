@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import * as Result from "effect/Result";
-import { GraphQLClient, GraphQLClientError, GraphQLGroup } from "effect/graphql";
+import * as RequestResolver from "effect/RequestResolver";
+import { GraphQLClient, GraphQLClientError, GraphQLGroup, GraphQLResolver } from "effect/graphql";
 import {
   IssueTrackerKind,
   type IssueCapabilities,
@@ -115,6 +116,26 @@ const FAILURE_DETAIL: Record<IssueTrackerError["reason"], string> = {
   failed: "The GitHub issue request failed.",
 };
 
+const BOARD_ISSUES_PER_REQUEST = 25;
+
+/**
+ * Whether a batched board issue read failed only because its own repository or issue is
+ * missing. A batch-level failure keeps its alias prefix in each path, so it never matches.
+ */
+const isMissingBoardIssue = (error: unknown): boolean =>
+  GraphQLClientError.isGraphQLClientError(error) &&
+  error.reason._tag === "ResponseError" &&
+  error.reason.errors.length > 0 &&
+  error.reason.errors.every((graphQlError) => {
+    const path = graphQlError["path"];
+    return (
+      graphQlError["type"] === "NOT_FOUND" &&
+      Array.isArray(path) &&
+      path[0] === "repository" &&
+      (path.length === 1 || (path.length === 2 && path[1] === "issue"))
+    );
+  });
+
 const group = GraphQLGroup.merge(
   GraphQLGroup.merge(IssuesGraphQLGroup, BoardGraphQLGroup),
   GraphQLGroup.make(AddReaction, RemoveReaction),
@@ -123,6 +144,9 @@ const group = GraphQLGroup.merge(
 export const make = Effect.gen(function* () {
   const api = yield* GitHubRest.GitHubRest;
   const client = yield* GraphQLClient.make(group).pipe(Effect.provide(GitHubGraphQlClient.layer));
+  const boardIssueResolver = GraphQLResolver.aliased(client.BoardIssue, {
+    batchKey: GitHubGraphQlClient.batchKey,
+  }).pipe(RequestResolver.batchN(BOARD_ISSUES_PER_REQUEST));
 
   const fail =
     (operation: string) =>
@@ -232,8 +256,14 @@ export const make = Effect.gen(function* () {
             client.BoardFields(variables).pipe(graphql(input.host, "listBoard")),
           issues: (variables) =>
             client.BoardIssues(variables).pipe(graphql(input.host, "listBoard")),
+          issue: (variables) =>
+            GraphQLResolver.request(variables, boardIssueResolver).pipe(
+              Effect.catchIf(isMissingBoardIssue, () => Effect.succeed({ repository: null })),
+              graphql(input.host, "listBoard"),
+            ),
         },
         input,
+        input.recorded,
       ),
 
     getIssue: Effect.fn("GitHubIssueTracker.getIssue")(function* (input) {

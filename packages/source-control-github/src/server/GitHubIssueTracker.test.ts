@@ -570,6 +570,8 @@ Redact secrets before uploading.`);
       answers: {
         readonly fields: unknown;
         readonly pages?: ReadonlyArray<unknown>;
+        /** Answers a batch of `BoardIssue` reads from its aliased variables. */
+        readonly issues?: (variables: Record<string, unknown>) => unknown;
       },
       sent: Array<{ operation: string | undefined; variables: unknown }>,
     ) {
@@ -585,7 +587,12 @@ Redact secrets before uploading.`);
               );
               const operation = query.match(/query\s+(\w+)/)?.[1];
               sent.push({ operation, variables });
-              const body = operation === "BoardFields" ? answers.fields : answers.pages?.[page++];
+              const body =
+                operation === "BoardFields"
+                  ? answers.fields
+                  : operation === "BoardIssue"
+                    ? answers.issues?.(variables)
+                    : answers.pages?.[page++];
               return Effect.succeed(
                 HttpClientResponse.fromWeb(
                   request,
@@ -599,6 +606,47 @@ Redact secrets before uploading.`);
         ),
       );
     }
+
+    const onBoard = {
+      project: { number: 7, owner: { __typename: "Organization", login: "acme" } },
+      fieldValueByName: { __typename: "ProjectV2ItemFieldSingleSelectValue", name: "Ready" },
+    };
+    const elsewhere = {
+      project: { number: 8, owner: { __typename: "Organization", login: "acme" } },
+      fieldValueByName: null,
+    };
+
+    /** One `BoardIssue` slice's answer: its `repository` value and the errors under its alias. */
+    type IssueSlice = (alias: string) => {
+      readonly repository: unknown;
+      readonly errors?: ReadonlyArray<unknown>;
+    };
+    const openIssue =
+      (number: number, items: ReadonlyArray<unknown>, hasNextPage = false): IssueSlice =>
+      () => {
+        const { __typename: _, ...node } = boardNode(number, "acme/web", {
+          title: `Direct ${number}`,
+        });
+        return {
+          repository: {
+            issue: { ...node, projectItems: { pageInfo: { hasNextPage }, nodes: items } },
+          },
+        };
+      };
+    /** Answers each aliased slice by the issue number it asks for. */
+    const issueSlices =
+      (slices: Record<number, IssueSlice>) => (variables: Record<string, unknown>) => {
+        const data: Record<string, unknown> = {};
+        const errors: unknown[] = [];
+        for (const [name, value] of Object.entries(variables)) {
+          const prefix = /^(_\d+_)number$/.exec(name)?.[1];
+          if (prefix === undefined) continue;
+          const slice = slices[value as number]!(`${prefix}repository`);
+          data[`${prefix}repository`] = slice.repository;
+          errors.push(...(slice.errors ?? []));
+        }
+        return errors.length === 0 ? { data } : { data, errors };
+      };
 
     const fieldsAnswer = (nodes: ReadonlyArray<unknown>) => ({
       data: {
@@ -664,7 +712,14 @@ Redact secrets before uploading.`);
             sent,
           );
 
-          const issues = yield* api.listBoard!(BOARD);
+          // Every recorded issue is listed, so none is read on its own.
+          const issues = yield* api.listBoard!({
+            ...BOARD,
+            recorded: [
+              { scope: "acme/web", key: "1" },
+              { scope: "ACME/API", key: "101" },
+            ],
+          });
 
           expect(sent).toEqual([
             { operation: "BoardFields", variables: { owner: "Acme", number: 7 } },
@@ -703,6 +758,60 @@ Redact secrets before uploading.`);
         }),
     );
 
+    it.effect("confirms each recorded issue the search leaves out, in one request", () =>
+      Effect.gen(function* () {
+        const sent: Array<{ operation: string | undefined; variables: unknown }> = [];
+        const api = yield* boardTracker(
+          {
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([boardNode(1, "Acme/Web")], null, 1)],
+            issues: issueSlices({
+              2: openIssue(2, [elsewhere, onBoard]),
+              3: () => {
+                const { __typename: _, ...node } = boardNode(3, "acme/web", { state: "CLOSED" });
+                return {
+                  repository: {
+                    issue: {
+                      ...node,
+                      projectItems: { pageInfo: { hasNextPage: false }, nodes: [onBoard] },
+                    },
+                  },
+                };
+              },
+              4: (alias) => ({
+                repository: { issue: null },
+                errors: [{ type: "NOT_FOUND", path: [alias, "issue"], message: "No issue" }],
+              }),
+              5: (alias) => ({
+                repository: null,
+                errors: [{ type: "NOT_FOUND", path: [alias], message: "No repository" }],
+              }),
+              6: openIssue(6, [elsewhere]),
+            }),
+          },
+          sent,
+        );
+
+        const issues = yield* api.listBoard!({
+          ...BOARD,
+          recorded: [
+            { scope: "acme/web", key: "1" },
+            { scope: "acme/web", key: "2" },
+            { scope: "acme/web", key: "3" },
+            { scope: "acme/web", key: "4" },
+            { scope: "acme/gone", key: "5" },
+            { scope: "acme/web", key: "6" },
+          ],
+        });
+
+        expect(issues.map((issue) => [issue.key, issue.title, issue.status])).toEqual([
+          ["1", "Issue 1", null],
+          ["2", "Direct 2", "Ready"],
+        ]);
+        expect(sent.filter((entry) => entry.operation === "BoardIssue")).toHaveLength(1);
+      }),
+    );
+
     it.effect("refuses a board it cannot read whole before listing anything", () =>
       Effect.gen(function* () {
         const cases = [
@@ -737,11 +846,77 @@ Redact secrets before uploading.`);
               "Project Acme/7 has more than 1,000 open issues, which GitHub search cannot list.",
             searches: 1,
           },
+          {
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([], null, 0)],
+            issues: issueSlices({
+              2: (alias) => ({
+                repository: null,
+                errors: [{ type: "FORBIDDEN", path: [alias], message: "Resource not accessible" }],
+              }),
+            }),
+            detail:
+              "Could not confirm that acme/web#2 left project Acme/7: The GitHub issue request failed.",
+            searches: 1,
+          },
+          {
+            // Only a missing repository or issue is gone; a missing nested field cannot tell.
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([], null, 0)],
+            issues: issueSlices({
+              2: (alias) => ({
+                ...openIssue(2, [onBoard])(alias),
+                errors: [
+                  { type: "NOT_FOUND", path: [alias, "issue", "blockedBy"], message: "Gone" },
+                ],
+              }),
+            }),
+            detail:
+              "Could not confirm that acme/web#2 left project Acme/7: GitHub could not find the requested issue.",
+            searches: 1,
+          },
+          {
+            // An error that nulls the whole answer fails every slice, so none counts as missing.
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([], null, 0)],
+            issues: () => ({
+              data: null,
+              errors: [{ type: "NOT_FOUND", path: ["_0_repository"], message: "No repository" }],
+            }),
+            detail:
+              "Could not confirm that acme/web#2 left project Acme/7: GitHub could not find the requested issue.",
+            searches: 1,
+          },
+          {
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([], null, 0)],
+            issues: issueSlices({ 2: openIssue(2, [elsewhere], true) }),
+            detail:
+              "Could not confirm that acme/web#2 left project Acme/7: it is on more projects than one read lists.",
+            searches: 1,
+          },
+          {
+            fields: fieldsAnswer([STATUS_FIELD]),
+            pages: [search([], null, 0)],
+            issues: issueSlices({
+              2: () => {
+                const { __typename: _, ...node } = boardNode(2, "acme/web", { projectItems: null });
+                return { repository: { issue: node } };
+              },
+            }),
+            detail:
+              "Could not confirm that acme/web#2 left project Acme/7: GitHub did not say which projects it is on.",
+            searches: 1,
+          },
         ];
         for (const { detail, searches, ...answers } of cases) {
           const sent: Array<{ operation: string | undefined; variables: unknown }> = [];
           const api = yield* boardTracker(answers, sent);
-          expect(yield* Effect.flip(api.listBoard!(BOARD))).toMatchObject({
+          expect(
+            yield* Effect.flip(
+              api.listBoard!({ ...BOARD, recorded: [{ scope: "acme/web", key: "2" }] }),
+            ),
+          ).toMatchObject({
             operation: "listBoard",
             reason: "failed",
             detail,

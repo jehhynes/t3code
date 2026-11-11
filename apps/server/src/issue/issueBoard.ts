@@ -42,6 +42,11 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
   readonly boards: ReadonlyArray<GitHubBoardConfig>;
   /** The `boardSourceKey` of each board that is on. */
   readonly enabled: ReadonlySet<string>;
+  /** By `boardSourceKey`, the issues recorded in a selection on that board, to confirm if left out. */
+  readonly recorded?: ReadonlyMap<
+    string,
+    ReadonlyArray<{ readonly scope: string; readonly key: string }>
+  >;
   readonly api: IssueTrackerApi | null;
   readonly projects: ReadonlyArray<BoardProjectScope>;
 }) {
@@ -63,7 +68,8 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
   const boards = yield* Effect.forEach(
     input.boards,
     (board): Effect.Effect<IssueBoard> => {
-      if (!input.enabled.has(boardSourceKey(board))) {
+      const boardKey = boardSourceKey(board);
+      if (!input.enabled.has(boardKey)) {
         return Effect.succeed({ ...board, enabled: false, entries: [], error: null });
       }
       const unread = (error: string): IssueBoard => ({
@@ -75,7 +81,11 @@ export const readBoards = Effect.fn("IssueService.readBoards")(function* (input:
       if (listBoard === undefined) {
         return Effect.succeed(unread("GitHub boards cannot be read by this server."));
       }
-      return listBoard({ ...board, host: GITHUB_HOST }).pipe(
+      return listBoard({
+        ...board,
+        host: GITHUB_HOST,
+        recorded: input.recorded?.get(boardKey) ?? [],
+      }).pipe(
         Effect.map((issues): IssueBoard => ({
           ...board,
           enabled: true,

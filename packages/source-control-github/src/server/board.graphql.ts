@@ -3,6 +3,203 @@ import { GraphQL, GraphQLGroup } from "effect/graphql"
 import * as Schema from "effect/Schema"
 import * as Shared from "../../schema/github.graphql.ts"
 
+/** A user is an individual's account on GitHub that owns repositories and can make new content. */
+export const AuthorUser = Schema.Struct({
+  __typename: Schema.Literal("User"),
+  /** The username used to login. */
+  login: Schema.String,
+  /** A URL pointing to the user's public avatar. */
+  avatarUrl: Shared.URI,
+  /** The user's public profile name. */
+  name: Schema.NullOr(Schema.String)
+})
+export interface AuthorUser extends Schema.Struct.Type<typeof AuthorUser.fields> {}
+
+/** Represents an object which can take actions on GitHub. Typically a User or Bot. */
+export const ActorOther = Schema.Struct({
+  __typename: GraphQL.otherTypename<Shared.Typename.Actor>()(["User"]),
+  /** The username of the actor. */
+  login: Schema.String,
+  /** A URL pointing to the actor's public avatar. */
+  avatarUrl: Shared.URI
+})
+export interface ActorOther extends Schema.Struct.Type<typeof ActorOther.fields> {}
+
+/** A user is an individual's account on GitHub that owns repositories and can make new content. */
+export const NodesUser = Schema.Struct({
+  /** The username used to login. */
+  login: Schema.String,
+  /** The user's public profile name. */
+  name: Schema.NullOr(Schema.String),
+  /** A URL pointing to the user's public avatar. */
+  avatarUrl: Shared.URI
+})
+export interface NodesUser extends Schema.Struct.Type<typeof NodesUser.fields> {}
+
+/** A list of users. */
+export const UserConnection = Schema.Struct({
+  /** A list of nodes. */
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(NodesUser)))
+})
+export interface UserConnection extends Schema.Struct.Type<typeof UserConnection.fields> {}
+
+/** A label for categorizing Issues, Pull Requests, Milestones, or Discussions with a given Repository. */
+export const Label = Schema.Struct({
+  /** Identifies the label name. */
+  name: Schema.String,
+  /** Identifies the label color. */
+  color: Schema.String
+})
+export interface Label extends Schema.Struct.Type<typeof Label.fields> {}
+
+/** The connection type for Label. */
+export const LabelConnection = Schema.Struct({
+  /** A list of nodes. */
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(Label)))
+})
+export interface LabelConnection extends Schema.Struct.Type<typeof LabelConnection.fields> {}
+
+/** The connection type for IssueComment. */
+export const IssueCommentConnection = Schema.Struct({
+  /** Identifies the total count of items in the connection. */
+  totalCount: Shared.Int
+})
+export interface IssueCommentConnection extends Schema.Struct.Type<typeof IssueCommentConnection.fields> {}
+
+/** A repository contains the content for a project. */
+export const BoardIssueNodeRepositoryRepository = Schema.Struct({
+  /** The repository's name with owner. */
+  nameWithOwner: Schema.String
+})
+export interface BoardIssueNodeRepositoryRepository extends Schema.Struct.Type<typeof BoardIssueNodeRepositoryRepository.fields> {}
+
+/** An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project. */
+export const BlockedByNodesIssue = Schema.Struct({
+  /** Identifies the issue number. */
+  number: Shared.Int,
+  /** Identifies the issue title. */
+  title: Schema.String,
+  /** The HTTP URL for this issue */
+  url: Shared.URI,
+  /** Identifies the state of the issue. */
+  state: GraphQL.enumLiterals(Shared.IssueState.literals),
+  /** The repository associated with this node. */
+  repository: BoardIssueNodeRepositoryRepository
+})
+export interface BlockedByNodesIssue extends Schema.Struct.Type<typeof BlockedByNodesIssue.fields> {}
+
+/** The connection type for Issue. */
+export const IssueConnection = Schema.Struct({
+  /** A list of nodes. */
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(BlockedByNodesIssue)))
+})
+export interface IssueConnection extends Schema.Struct.Type<typeof IssueConnection.fields> {}
+
+/**
+ * `fragment BoardIssueNode on Issue`
+ *
+ * An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project.
+ */
+export const BoardIssueNode = Schema.Struct({
+  /** Identifies the issue number. */
+  number: Shared.Int,
+  /** Identifies the issue title. */
+  title: Schema.String,
+  /** The HTTP URL for this issue */
+  url: Shared.URI,
+  /** Identifies the state of the issue. */
+  state: GraphQL.enumLiterals(Shared.IssueState.literals),
+  /** Identifies the reason for the issue state. */
+  stateReason: Schema.NullOr(GraphQL.enumLiterals(Shared.IssueStateReason.literals)),
+  /** Identifies the date and time when the object was created. */
+  createdAt: Shared.DateTime,
+  /** Identifies the date and time when the object was last updated. */
+  updatedAt: Shared.DateTime,
+  /** Identifies the date and time when the object was closed. */
+  closedAt: Schema.NullOr(Shared.DateTime),
+  /** The actor who authored the comment. */
+  author: Schema.NullOr(Schema.Union([
+    AuthorUser,
+    ActorOther
+  ])),
+  /** A list of Users assigned to this object. */
+  assignees: UserConnection,
+  /** A list of labels associated with the object. */
+  labels: Schema.NullOr(LabelConnection),
+  /** A list of comments associated with the Issue. */
+  comments: IssueCommentConnection,
+  /** The repository associated with this node. */
+  repository: BoardIssueNodeRepositoryRepository,
+  /** A list of issues that are blocking this issue. */
+  blockedBy: IssueConnection
+})
+export interface BoardIssueNode extends Schema.Struct.Type<typeof BoardIssueNode.fields> {}
+
+/** An account on GitHub, with one or more owners, that has repositories, members and teams. */
+export const OwnerOrganization = Schema.Struct({
+  __typename: Schema.Literal("Organization"),
+  /** The organization's login name. */
+  login: Schema.String
+})
+export interface OwnerOrganization extends Schema.Struct.Type<typeof OwnerOrganization.fields> {}
+
+/** A user is an individual's account on GitHub that owns repositories and can make new content. */
+export const OwnerUser = Schema.Struct({
+  __typename: Schema.Literal("User"),
+  /** The username used to login. */
+  login: Schema.String
+})
+export interface OwnerUser extends Schema.Struct.Type<typeof OwnerUser.fields> {}
+
+/** Represents an owner of a project. */
+export const ProjectV2OwnerOther = Schema.Struct({
+  __typename: GraphQL.otherTypename<Shared.Typename.ProjectV2Owner>()(["Organization", "User"])
+})
+export interface ProjectV2OwnerOther extends Schema.Struct.Type<typeof ProjectV2OwnerOther.fields> {}
+
+/** New projects that manage issues, pull requests and drafts using tables and boards. */
+export const ProjectProjectV2 = Schema.Struct({
+  /** The project's number. */
+  number: Shared.Int,
+  /** The project's owner. Currently limited to organizations and users. */
+  owner: Schema.Union([
+    OwnerOrganization,
+    OwnerUser,
+    ProjectV2OwnerOther
+  ])
+})
+export interface ProjectProjectV2 extends Schema.Struct.Type<typeof ProjectProjectV2.fields> {}
+
+/** The value of a single select field in a Project item. */
+export const ProjectV2ItemFieldSingleSelectValue = Schema.Struct({
+  __typename: Schema.Literal("ProjectV2ItemFieldSingleSelectValue"),
+  /** The name of the selected single select option. */
+  name: Schema.NullOr(Schema.String)
+})
+export interface ProjectV2ItemFieldSingleSelectValue extends Schema.Struct.Type<typeof ProjectV2ItemFieldSingleSelectValue.fields> {}
+
+/** Project field values */
+export const ProjectV2ItemFieldValueOther = Schema.Struct({
+  __typename: GraphQL.otherTypename<Shared.Typename.ProjectV2ItemFieldValue>()(["ProjectV2ItemFieldSingleSelectValue"])
+})
+export interface ProjectV2ItemFieldValueOther extends Schema.Struct.Type<typeof ProjectV2ItemFieldValueOther.fields> {}
+
+/**
+ * `fragment BoardProjectItem on ProjectV2Item`
+ *
+ * An item within a Project.
+ */
+export const BoardProjectItem = Schema.Struct({
+  /** The project that contains this item. */
+  project: ProjectProjectV2,
+  /** The field value of the first project field which matches the 'name' argument that is set on the item. */
+  fieldValueByName: Schema.NullOr(Schema.Union([
+    ProjectV2ItemFieldSingleSelectValue,
+    ProjectV2ItemFieldValueOther
+  ]))
+})
+export interface BoardProjectItem extends Schema.Struct.Type<typeof BoardProjectItem.fields> {}
+
 /** A field inside a project. */
 export const ProjectV2Field = Schema.Struct({
   __typename: Schema.Literal("ProjectV2Field"),
@@ -114,210 +311,27 @@ export declare namespace BoardFields {
 }
 
 /** Information about pagination in a connection. */
-export const PageInfo = Schema.Struct({
+export const SearchPageInfoPageInfo = Schema.Struct({
   /** When paginating forwards, are there more items? */
   hasNextPage: Schema.Boolean,
   /** When paginating forwards, the cursor to continue. */
   endCursor: Schema.NullOr(Schema.String)
 })
-export interface PageInfo extends Schema.Struct.Type<typeof PageInfo.fields> {}
-
-/** A user is an individual's account on GitHub that owns repositories and can make new content. */
-export const AuthorUser = Schema.Struct({
-  __typename: Schema.Literal("User"),
-  /** The username used to login. */
-  login: Schema.String,
-  /** A URL pointing to the user's public avatar. */
-  avatarUrl: Shared.URI,
-  /** The user's public profile name. */
-  name: Schema.NullOr(Schema.String)
-})
-export interface AuthorUser extends Schema.Struct.Type<typeof AuthorUser.fields> {}
-
-/** Represents an object which can take actions on GitHub. Typically a User or Bot. */
-export const ActorOther = Schema.Struct({
-  __typename: GraphQL.otherTypename<Shared.Typename.Actor>()(["User"]),
-  /** The username of the actor. */
-  login: Schema.String,
-  /** A URL pointing to the actor's public avatar. */
-  avatarUrl: Shared.URI
-})
-export interface ActorOther extends Schema.Struct.Type<typeof ActorOther.fields> {}
-
-/** A user is an individual's account on GitHub that owns repositories and can make new content. */
-export const NodesUser = Schema.Struct({
-  /** The username used to login. */
-  login: Schema.String,
-  /** The user's public profile name. */
-  name: Schema.NullOr(Schema.String),
-  /** A URL pointing to the user's public avatar. */
-  avatarUrl: Shared.URI
-})
-export interface NodesUser extends Schema.Struct.Type<typeof NodesUser.fields> {}
-
-/** A list of users. */
-export const UserConnection = Schema.Struct({
-  /** A list of nodes. */
-  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(NodesUser)))
-})
-export interface UserConnection extends Schema.Struct.Type<typeof UserConnection.fields> {}
-
-/** A label for categorizing Issues, Pull Requests, Milestones, or Discussions with a given Repository. */
-export const Label = Schema.Struct({
-  /** Identifies the label name. */
-  name: Schema.String,
-  /** Identifies the label color. */
-  color: Schema.String
-})
-export interface Label extends Schema.Struct.Type<typeof Label.fields> {}
-
-/** The connection type for Label. */
-export const LabelConnection = Schema.Struct({
-  /** A list of nodes. */
-  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(Label)))
-})
-export interface LabelConnection extends Schema.Struct.Type<typeof LabelConnection.fields> {}
-
-/** The connection type for IssueComment. */
-export const IssueCommentConnection = Schema.Struct({
-  /** Identifies the total count of items in the connection. */
-  totalCount: Shared.Int
-})
-export interface IssueCommentConnection extends Schema.Struct.Type<typeof IssueCommentConnection.fields> {}
-
-/** A repository contains the content for a project. */
-export const Repository = Schema.Struct({
-  /** The repository's name with owner. */
-  nameWithOwner: Schema.String
-})
-export interface Repository extends Schema.Struct.Type<typeof Repository.fields> {}
-
-/** An account on GitHub, with one or more owners, that has repositories, members and teams. */
-export const OwnerOrganization = Schema.Struct({
-  __typename: Schema.Literal("Organization"),
-  /** The organization's login name. */
-  login: Schema.String
-})
-export interface OwnerOrganization extends Schema.Struct.Type<typeof OwnerOrganization.fields> {}
-
-/** A user is an individual's account on GitHub that owns repositories and can make new content. */
-export const OwnerUser = Schema.Struct({
-  __typename: Schema.Literal("User"),
-  /** The username used to login. */
-  login: Schema.String
-})
-export interface OwnerUser extends Schema.Struct.Type<typeof OwnerUser.fields> {}
-
-/** Represents an owner of a project. */
-export const ProjectV2OwnerOther = Schema.Struct({
-  __typename: GraphQL.otherTypename<Shared.Typename.ProjectV2Owner>()(["Organization", "User"])
-})
-export interface ProjectV2OwnerOther extends Schema.Struct.Type<typeof ProjectV2OwnerOther.fields> {}
-
-/** New projects that manage issues, pull requests and drafts using tables and boards. */
-export const ProjectProjectV2 = Schema.Struct({
-  /** The project's number. */
-  number: Shared.Int,
-  /** The project's owner. Currently limited to organizations and users. */
-  owner: Schema.Union([
-    OwnerOrganization,
-    OwnerUser,
-    ProjectV2OwnerOther
-  ])
-})
-export interface ProjectProjectV2 extends Schema.Struct.Type<typeof ProjectProjectV2.fields> {}
-
-/** The value of a single select field in a Project item. */
-export const ProjectV2ItemFieldSingleSelectValue = Schema.Struct({
-  __typename: Schema.Literal("ProjectV2ItemFieldSingleSelectValue"),
-  /** The name of the selected single select option. */
-  name: Schema.NullOr(Schema.String)
-})
-export interface ProjectV2ItemFieldSingleSelectValue extends Schema.Struct.Type<typeof ProjectV2ItemFieldSingleSelectValue.fields> {}
-
-/** Project field values */
-export const ProjectV2ItemFieldValueOther = Schema.Struct({
-  __typename: GraphQL.otherTypename<Shared.Typename.ProjectV2ItemFieldValue>()(["ProjectV2ItemFieldSingleSelectValue"])
-})
-export interface ProjectV2ItemFieldValueOther extends Schema.Struct.Type<typeof ProjectV2ItemFieldValueOther.fields> {}
-
-/** An item within a Project. */
-export const ProjectV2Item = Schema.Struct({
-  /** The project that contains this item. */
-  project: ProjectProjectV2,
-  /** The field value of the first project field which matches the 'name' argument that is set on the item. */
-  fieldValueByName: Schema.NullOr(Schema.Union([
-    ProjectV2ItemFieldSingleSelectValue,
-    ProjectV2ItemFieldValueOther
-  ]))
-})
-export interface ProjectV2Item extends Schema.Struct.Type<typeof ProjectV2Item.fields> {}
+export interface SearchPageInfoPageInfo extends Schema.Struct.Type<typeof SearchPageInfoPageInfo.fields> {}
 
 /** The connection type for ProjectV2Item. */
-export const ProjectV2ItemConnection = Schema.Struct({
+export const NodesProjectItemsProjectV2ItemConnection = Schema.Struct({
   /** A list of nodes. */
-  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(ProjectV2Item)))
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(BoardProjectItem)))
 })
-export interface ProjectV2ItemConnection extends Schema.Struct.Type<typeof ProjectV2ItemConnection.fields> {}
-
-/** An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project. */
-export const BlockedByNodesIssue = Schema.Struct({
-  /** Identifies the issue number. */
-  number: Shared.Int,
-  /** Identifies the issue title. */
-  title: Schema.String,
-  /** The HTTP URL for this issue */
-  url: Shared.URI,
-  /** Identifies the state of the issue. */
-  state: GraphQL.enumLiterals(Shared.IssueState.literals),
-  /** The repository associated with this node. */
-  repository: Repository
-})
-export interface BlockedByNodesIssue extends Schema.Struct.Type<typeof BlockedByNodesIssue.fields> {}
-
-/** The connection type for Issue. */
-export const IssueConnection = Schema.Struct({
-  /** A list of nodes. */
-  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(BlockedByNodesIssue)))
-})
-export interface IssueConnection extends Schema.Struct.Type<typeof IssueConnection.fields> {}
+export interface NodesProjectItemsProjectV2ItemConnection extends Schema.Struct.Type<typeof NodesProjectItemsProjectV2ItemConnection.fields> {}
 
 /** An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project. */
 export const SearchNodesIssue = Schema.Struct({
   __typename: Schema.Literal("Issue"),
-  /** Identifies the issue number. */
-  number: Shared.Int,
-  /** Identifies the issue title. */
-  title: Schema.String,
-  /** The HTTP URL for this issue */
-  url: Shared.URI,
-  /** Identifies the state of the issue. */
-  state: GraphQL.enumLiterals(Shared.IssueState.literals),
-  /** Identifies the reason for the issue state. */
-  stateReason: Schema.NullOr(GraphQL.enumLiterals(Shared.IssueStateReason.literals)),
-  /** Identifies the date and time when the object was created. */
-  createdAt: Shared.DateTime,
-  /** Identifies the date and time when the object was last updated. */
-  updatedAt: Shared.DateTime,
-  /** Identifies the date and time when the object was closed. */
-  closedAt: Schema.NullOr(Shared.DateTime),
-  /** The actor who authored the comment. */
-  author: Schema.NullOr(Schema.Union([
-    AuthorUser,
-    ActorOther
-  ])),
-  /** A list of Users assigned to this object. */
-  assignees: UserConnection,
-  /** A list of labels associated with the object. */
-  labels: Schema.NullOr(LabelConnection),
-  /** A list of comments associated with the Issue. */
-  comments: IssueCommentConnection,
-  /** The repository associated with this node. */
-  repository: Repository,
+  ...BoardIssueNode.fields,
   /** List of project items associated with this issue. */
-  projectItems: Schema.NullOr(ProjectV2ItemConnection),
-  /** A list of issues that are blocking this issue. */
-  blockedBy: IssueConnection
+  projectItems: Schema.NullOr(NodesProjectItemsProjectV2ItemConnection)
 })
 export interface SearchNodesIssue extends Schema.Struct.Type<typeof SearchNodesIssue.fields> {}
 
@@ -339,7 +353,7 @@ export const SearchResultItemConnection = Schema.Struct({
    */
   issueCount: Shared.Int,
   /** Information to aid in pagination. */
-  pageInfo: PageInfo,
+  pageInfo: SearchPageInfoPageInfo,
   /** A list of nodes. */
   nodes: Schema.NullOr(Schema.Array(Schema.NullOr(Schema.Union([
     SearchNodesIssue,
@@ -357,9 +371,12 @@ export const BoardIssues = GraphQL.query("BoardIssues", {
       { name: "cursor", body: "String" }
     ],
     selections: [
-      { name: "search", body: ["(query:$", "q", " type:ISSUE first:100 after:$", "cursor", "){issueCount pageInfo{hasNextPage endCursor}nodes{__typename...on Issue{number title url state stateReason createdAt updatedAt closedAt author{__typename login avatarUrl...on User{name}}assignees(first:20){nodes{login name avatarUrl}}labels(first:20){nodes{name color}}comments{totalCount}repository{nameWithOwner}projectItems(first:20){nodes{project{number owner{__typename...on Organization{login}...on User{login}}}fieldValueByName(name:$", "status", "){__typename...on ProjectV2ItemFieldSingleSelectValue{name}}}}blockedBy(first:50){nodes{number title url state repository{nameWithOwner}}}}}}"] }
+      { name: "search", body: ["(query:$", "q", " type:ISSUE first:100 after:$", "cursor", "){issueCount pageInfo{hasNextPage endCursor}nodes{__typename...on Issue{...BoardIssueNode projectItems(first:20){nodes{...", "BoardProjectItem", "}}}}}"] }
     ],
-    fragments: []
+    fragments: [
+      { name: "BoardIssueNode", body: ["on Issue{number title url state stateReason createdAt updatedAt closedAt author{__typename login avatarUrl...on User{name}}assignees(first:20){nodes{login name avatarUrl}}labels(first:20){nodes{name color}}comments{totalCount}repository{nameWithOwner}blockedBy(first:50){nodes{number title url state repository{nameWithOwner}}}}"] },
+      { name: "BoardProjectItem", body: ["on ProjectV2Item{project{number owner{__typename...on Organization{login}...on User{login}}}fieldValueByName(name:$", "status", "){__typename...on ProjectV2ItemFieldSingleSelectValue{name}}}"] }
+    ]
   },
   variables: {
     q: Schema.String,
@@ -376,5 +393,69 @@ export declare namespace BoardIssues {
   export type Result = typeof BoardIssues.result.Type
 }
 
+/** Information about pagination in a connection. */
+export const ProjectItemsPageInfoPageInfo = Schema.Struct({
+  /** When paginating forwards, are there more items? */
+  hasNextPage: Schema.Boolean
+})
+export interface ProjectItemsPageInfoPageInfo extends Schema.Struct.Type<typeof ProjectItemsPageInfoPageInfo.fields> {}
+
+/** The connection type for ProjectV2Item. */
+export const IssueProjectItemsProjectV2ItemConnection = Schema.Struct({
+  /** Information to aid in pagination. */
+  pageInfo: ProjectItemsPageInfoPageInfo,
+  /** A list of nodes. */
+  nodes: Schema.NullOr(Schema.Array(Schema.NullOr(BoardProjectItem)))
+})
+export interface IssueProjectItemsProjectV2ItemConnection extends Schema.Struct.Type<typeof IssueProjectItemsProjectV2ItemConnection.fields> {}
+
+/** An Issue is a place to discuss ideas, enhancements, tasks, and bugs for a project. */
+export const IssueIssue = Schema.Struct({
+  ...BoardIssueNode.fields,
+  /** List of project items associated with this issue. */
+  projectItems: Schema.NullOr(IssueProjectItemsProjectV2ItemConnection)
+})
+export interface IssueIssue extends Schema.Struct.Type<typeof IssueIssue.fields> {}
+
+/** A repository contains the content for a project. */
+export const BoardIssueRepositoryRepository = Schema.Struct({
+  /** Returns a single issue from the current repository by number. */
+  issue: Schema.NullOr(IssueIssue)
+})
+export interface BoardIssueRepositoryRepository extends Schema.Struct.Type<typeof BoardIssueRepositoryRepository.fields> {}
+
+/** `query BoardIssue` */
+export const BoardIssue = GraphQL.query("BoardIssue", {
+  document: {
+    variables: [
+      { name: "owner", body: "String!" },
+      { name: "name", body: "String!" },
+      { name: "number", body: "Int!" },
+      { name: "status", body: "String!" }
+    ],
+    selections: [
+      { name: "repository", body: ["(owner:$", "owner", " name:$", "name", "){issue(number:$", "number", "){...BoardIssueNode projectItems(first:100){pageInfo{hasNextPage}nodes{...", "BoardProjectItem", "}}}}"] }
+    ],
+    fragments: [
+      { name: "BoardIssueNode", body: ["on Issue{number title url state stateReason createdAt updatedAt closedAt author{__typename login avatarUrl...on User{name}}assignees(first:20){nodes{login name avatarUrl}}labels(first:20){nodes{name color}}comments{totalCount}repository{nameWithOwner}blockedBy(first:50){nodes{number title url state repository{nameWithOwner}}}}"] },
+      { name: "BoardProjectItem", body: ["on ProjectV2Item{project{number owner{__typename...on Organization{login}...on User{login}}}fieldValueByName(name:$", "status", "){__typename...on ProjectV2ItemFieldSingleSelectValue{name}}}"] }
+    ]
+  },
+  variables: {
+    owner: Schema.String,
+    name: Schema.String,
+    number: Shared.Int,
+    status: Schema.String
+  },
+  result: Schema.Struct({
+    /** Lookup a given repository by the owner and repository name. */
+    repository: Schema.NullOr(BoardIssueRepositoryRepository)
+  })
+})
+export declare namespace BoardIssue {
+  export type Variables = typeof BoardIssue.variables.Type
+  export type Result = typeof BoardIssue.result.Type
+}
+
 /** Every operation in board.graphql. */
-export const BoardGraphQLGroup = GraphQLGroup.make(BoardFields, BoardIssues)
+export const BoardGraphQLGroup = GraphQLGroup.make(BoardFields, BoardIssues, BoardIssue)

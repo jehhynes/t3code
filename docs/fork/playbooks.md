@@ -117,7 +117,9 @@ fails shows its failure in the thread, as any thread does.
 
 Issues enter and leave selections when T3 Code reads the boards, and only while it can tell: a
 board that is off or cannot be read keeps its issues as they were, and so does every issue while
-`playbooks.json` has a mistake or your GitHub account cannot be read. Starting needs the permission
+`playbooks.json` has a mistake or your GitHub account cannot be read. An issue that a board read
+leaves out leaves its selection only once T3 Code
+[confirms it is gone](issue-boards.md#when-an-issue-counts-as-gone). Starting needs the permission
 to run threads on that environment.
 
 ## Start by itself
