@@ -35,6 +35,8 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { IssueCreateDialog, type IssueCreateScope } from "~/components/issue/IssueCreateDialog";
 import { IssueBoardSection, boardEntryKey } from "~/components/issue/IssueBoardSection";
+// Fork-only (jehhynes/t3code#106).
+import { withoutBoardIssues } from "~/components/issue/issueBoardProjectList";
 import { IssueStartList } from "~/components/issue/IssueStartList";
 import { IssueDetailPanel } from "~/components/issue/IssueDetailPanel";
 import {
@@ -605,7 +607,13 @@ function IssuesRoute() {
     </Empty>
   ) : (
     <div className="flex flex-col gap-6">
-      {groups.map((group) => {
+      {/* Fork-only (jehhynes/t3code#106): reuse the visible board rows instead of listing them twice. */}
+      {withoutBoardIssues(
+        groups,
+        boards.answers,
+        debouncedQuery,
+        issuesSupported && search.status !== "closed",
+      ).map((group) => {
         const presentation = issueTrackerPresentation(group.tracker.tracker);
         const showScope = new Set(group.rows.map((row) => row.scope.toLowerCase())).size > 1;
         return (
