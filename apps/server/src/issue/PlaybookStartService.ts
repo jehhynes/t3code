@@ -50,7 +50,7 @@ import * as IssueService from "./IssueService.ts";
 import * as IssueThreadSlots from "./IssueThreadSlots.ts";
 import { issueWorktreeConfig, makeIssueWorkspace } from "./issueWorktree.ts";
 import * as IssueWorktrees from "./IssueWorktrees.ts";
-import { entryWaitingIn, heldIn } from "./playbookEntries.ts";
+import { entryWaitingIn, heldIn, snoozedUntil } from "./playbookEntries.ts";
 import { renderPlaybookPrompt } from "./playbookPrompt.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
@@ -58,10 +58,10 @@ export class PlaybookStartService extends Context.Service<
   PlaybookStartService,
   {
     /**
-     * Sends the playbook's prompt to the issue's open thread, or launches its thread, linked to
-     * the issue waiting with that playbook. An issue held by an open blocker (jehhynes/t3code#65)
-     * or with no free slot (#76) is queued instead; `cancelQueued` takes that back. A start by
-     * itself with no free slot answers no thread and spends no try.
+     * Sends the prompt to the issue's open thread, or launches its linked thread. An open blocker
+     * (#65) or no free slot (#76) queues it instead, and a start by itself then spends no try;
+     * `cancelQueued` takes the queue back. A snoozed issue neither starts nor queues; `snooze`
+     * sets or clears its wake (jehhynes/t3code#86).
      */
     readonly start: (
       input: IssuePlaybookStartInput,
@@ -512,9 +512,41 @@ const make = Effect.gen(function* () {
     return { threadId: null };
   });
 
+  /** Snoozes the waiting issue until `until`, or wakes it with null (jehhynes/t3code#86). */
+  const snooze = Effect.fn("PlaybookStartService.snooze")(function* (
+    playbook: string,
+    entry: IssueBoardEntry,
+    until: string | null,
+  ) {
+    const now = yield* DateTime.now;
+    let stored: string | null = null;
+    if (until !== null) {
+      const wake = DateTime.make(until);
+      if (Option.isNone(wake)) return yield* fail("That snooze time is not a valid time.");
+      if (!DateTime.isGreaterThan(wake.value, now)) {
+        return yield* fail("That snooze time has passed. Choose another time.");
+      }
+      // Stored as UTC, so stored times and `now` order as strings.
+      stored = DateTime.formatIso(wake.value);
+    }
+    const snoozed = yield* entries
+      .setSnoozed({ issueKey: IssueThreadLinks.issueThreadKey(entry), playbook, until: stored })
+      .pipe(
+        Effect.mapError((cause) => fail("Which issues wait for Start could not be saved.", cause)),
+      );
+    if (!snoozed) {
+      return yield* fail(
+        `This issue is not waiting for playbook ${playbook}; refresh the Issues page.`,
+      );
+    }
+    yield* issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true }));
+    return { threadId: null };
+  });
+
   const start: PlaybookStartService["Service"]["start"] = Effect.fn("PlaybookStartService.start")(
     function* (input, options) {
       if ("cancelQueued" in input) return yield* cancelQueued(input.playbook, input.cancelQueued);
+      if ("snooze" in input) return yield* snooze(input.playbook, input.snooze, input.until);
       const { playbook: selection, entry: requested } = input;
       const auto = options?.auto === true;
       const { playbook, errors } = yield* findPlaybook(selection);
@@ -555,20 +587,30 @@ const make = Effect.gen(function* () {
     };
     const saveError = (cause: unknown) =>
       fail("Which issues wait for Start could not be saved.", cause);
+    const now = DateTime.formatIso(yield* DateTime.now);
     const claimEntry = entries
       .claim({
         ...claim,
         playbook: playbook.name,
         auto,
         selfStarting: playbook.autoStart === true,
+        now,
       })
       .pipe(Effect.mapError(saveError));
-    // Decided against the latest read under its lock, so no read publishes in between. By
-    // itself, only while that read still lists the issue waiting, unheld: a newer read may have
-    // found a mistake, an unreadable account, an open blocker, or the board off or failed.
-    // "waits": a start by itself found no free slot, and nothing changed (jehhynes/t3code#76).
-    type Claimed = IssueBoardEntry | "queued" | "waits" | null;
-    const now = DateTime.formatIso(yield* DateTime.now);
+    // Decided against the latest read under its lock, so no read publishes in between; by itself,
+    // only while that read still lists the issue waiting and unheld. Nothing changed for "waits"
+    // (a start by itself found no free slot, #76) or "snoozed" (its record is snoozed, #86).
+    type Claimed = IssueBoardEntry | "queued" | "waits" | "snoozed" | null;
+    // The claim and the queue refuse a snoozed record; only then is the record read for why.
+    const refusal = (): Effect.Effect<Claimed, IssueOperationError> =>
+      auto
+        ? Effect.succeed(null)
+        : entries.list.pipe(
+            Effect.mapError(saveError),
+            Effect.map((rows) =>
+              snoozedUntil(rows.get(claim.issueKey), now) === null ? null : "snoozed",
+            ),
+          );
     const claimed = issues.withLatestBoard(
       (latest): Effect.Effect<Claimed, IssueOperationError> => {
         const held = heldIn(latest, claim.issueKey, playbook.name).length > 0;
@@ -587,10 +629,12 @@ const make = Effect.gen(function* () {
             .setQueued({ issueKey: claim.issueKey, playbook: playbook.name, queued: true, now })
             .pipe(
               Effect.mapError(saveError),
-              Effect.map((ok) => (ok ? ("queued" as const) : null)),
+              Effect.flatMap((ok) => (ok ? Effect.succeed("queued" as const) : refusal())),
             );
         }
-        return claimEntry.pipe(Effect.map((ok) => (ok ? requested : null)));
+        return claimEntry.pipe(
+          Effect.flatMap((ok) => (ok ? Effect.succeed(requested) : refusal())),
+        );
       },
     );
     // Acquired uninterruptibly, so an interrupted Start cannot keep a claim it never used.
@@ -599,26 +643,28 @@ const make = Effect.gen(function* () {
       (entry): Effect.Effect<IssuePlaybookStartResult, IssueOperationError> =>
         entry === "queued" || entry === "waits"
           ? Effect.succeed({ threadId: null })
-          : entry !== null && entry.projectId !== null
-            ? projects.getById(entry.projectId).pipe(
-                Effect.mapError((cause) => fail("The project could not be read.", cause)),
-                Effect.flatMap(
-                  Option.match({
-                    onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
-                    onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
-                  }),
+          : entry === "snoozed"
+            ? Effect.fail(fail(`${requested.displayKey} is snoozed; unsnooze it to start it now.`))
+            : entry !== null && entry.projectId !== null
+              ? projects.getById(entry.projectId).pipe(
+                  Effect.mapError((cause) => fail("The project could not be read.", cause)),
+                  Effect.flatMap(
+                    Option.match({
+                      onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
+                      onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
+                    }),
+                  ),
+                )
+              : Effect.fail(
+                  fail(
+                    `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
+                  ),
                 ),
-              )
-            : Effect.fail(
-                fail(
-                  `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
-                ),
-              ),
       // A Start that fails or is interrupted before its thread holds the prompt leaves the issue
       // waiting, with the failure's cause. Either way every client is shown the entry as it now
       // is before Start answers.
       (entry, exit) =>
-        entry === null || entry === "waits"
+        entry === null || entry === "waits" || entry === "snoozed"
           ? Effect.void
           : (Exit.isFailure(exit) && entry !== "queued"
               ? Effect.gen(function* () {

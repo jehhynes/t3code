@@ -8,6 +8,7 @@ import {
   type IssueBoardResult,
   type IssuePlaybook,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Equal from "effect/Equal";
@@ -25,7 +26,7 @@ import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
 import * as PlaybookStartService from "./PlaybookStartService.ts";
-import { selfStartingPlaybooks } from "./playbookEntries.ts";
+import { selfStartingPlaybooks, snoozedUntil } from "./playbookEntries.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile } from "./playbookSelection.ts";
 
 const MIN_BOARD_READ_INTERVAL = Duration.seconds(10);
@@ -36,15 +37,16 @@ export interface AutoStart {
 }
 
 /**
- * The issues to start by themselves: each waits with a playbook that starts by itself and was not
- * tried yet, or was queued by Start (jehhynes/t3code#65); has a project; and has no open blocker
- * on a board that waits for blockers. None while any playbook cannot select. Oldest wait first, a
- * record from before jehhynes/t3code#76 before any, then in board order.
+ * The waiting issues to start by themselves: self-starting and untried, or queued (#65); with a
+ * project, no open blocker on a board that waits for them, and no snooze past `now` (#86). None
+ * while any playbook cannot select. Oldest wait first, a pre-#76 record first, then board order.
  */
 export function autoStartEntries(input: {
   readonly result: IssueBoardResult;
   readonly playbooks: ReadonlyArray<IssuePlaybook>;
   readonly rows: ReadonlyMap<string, IssuePlaybookEntries.PlaybookEntryRow>;
+  /** A UTC ISO time. */
+  readonly now: string;
 }): ReadonlyArray<AutoStart> {
   if (input.result.playbookErrors.length > 0) return [];
   const selfStarting = selfStartingPlaybooks(input.playbooks);
@@ -59,6 +61,8 @@ export function autoStartEntries(input: {
       // Held until a read shows no open blocker; the hold is no try.
       if (heldByBlockers(board, entry)) continue;
       const row = input.rows.get(issueThreadKey(entry));
+      // Held until its wake; the snooze is no try, and a queued start stays queued.
+      if (snoozedUntil(row, input.now) !== null) continue;
       const untried = selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false;
       if (!untried && row?.startQueued !== true) continue;
       starts.push({ playbook, entry, waitingSince: row?.waitingSince ?? "" });
@@ -91,7 +95,8 @@ const run = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
     );
     const rows = yield* entries.list;
-    for (const candidate of autoStartEntries({ result, playbooks, rows })) {
+    const now = DateTime.formatIso(yield* DateTime.now);
+    for (const candidate of autoStartEntries({ result, playbooks, rows, now })) {
       const key = issueThreadKey(candidate.entry);
       // Start checks again, against the latest read, that the issue still waits.
       const started = yield* starts.start(candidate, { auto: true }).pipe(

@@ -1,7 +1,13 @@
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
-import { PositiveInt, ProjectId, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import {
+  IsoDateTime,
+  PositiveInt,
+  ProjectId,
+  ThreadId,
+  TrimmedNonEmptyString,
+} from "./baseSchemas.ts";
 import { IssueSummary } from "./issue.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { OrchestrationV2ThreadLaunchWorkspaceStrategy } from "./orchestrationV2.ts";
@@ -78,6 +84,11 @@ export const IssueBoardEntry = Schema.Struct({
    * queued, or its playbook starts by itself and has not tried it. Absent from an older server.
    */
   startsBySelf: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Until when the waiting issue is snoozed, as a UTC ISO time; nothing starts it before then
+   * (jehhynes/t3code#86). A time that has passed no longer holds it. Absent from an older server.
+   */
+  snoozedUntil: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 
@@ -154,7 +165,8 @@ export type IssueBoardSetEnabledInput = typeof IssueBoardSetEnabledInput.Type;
 
 /**
  * Starts the named playbook's thread for a board issue, as the board listed it, or queues the start
- * while the issue has an open blocker; or takes a queued start back.
+ * while the issue has an open blocker; takes a queued start back; or snoozes the waiting issue until
+ * `until`, or wakes it with null.
  */
 export const IssuePlaybookStartInput = Schema.Union([
   Schema.Struct({
@@ -164,10 +176,16 @@ export const IssuePlaybookStartInput = Schema.Union([
   }),
   // No `entry` key, so a server older than jehhynes/t3code#65 refuses it rather than start it.
   Schema.Struct({ playbook: TrimmedNonEmptyString, cancelQueued: IssueBoardEntry }),
+  // Neither key either, so a server older than jehhynes/t3code#86 refuses it too.
+  Schema.Struct({
+    playbook: TrimmedNonEmptyString,
+    snooze: IssueBoardEntry,
+    until: Schema.NullOr(IsoDateTime),
+  }),
 ]);
 export type IssuePlaybookStartInput = typeof IssuePlaybookStartInput.Type;
 
-/** The started thread; null when the start was queued, or a queued start was taken back. */
+/** The started thread; null when the start was queued, taken back, or the issue was snoozed. */
 export const IssuePlaybookStartResult = Schema.Struct({ threadId: Schema.NullOr(ThreadId) });
 export type IssuePlaybookStartResult = typeof IssuePlaybookStartResult.Type;
 

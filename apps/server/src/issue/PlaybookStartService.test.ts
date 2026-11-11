@@ -138,6 +138,8 @@ interface Options {
   /** The entry's record: tried by itself, or queued by Start. */
   readonly autoTried?: boolean;
   readonly startQueued?: boolean;
+  /** The entry's stored snooze, a UTC ISO time (jehhynes/t3code#86). */
+  readonly snoozedUntil?: string;
   /** The worktree the issue's threads recorded last; none when left out. */
   readonly issueWorktree?: IssueThreadLinks.IssueWorktree;
   /** What `git worktree list` lists in the project, or a list that fails; none when left out. */
@@ -271,6 +273,7 @@ function harness<A, E>(
           leftAt: null,
           startQueued: input.startQueued === true,
           waitingSince: null,
+          snoozedUntil: input.snoozedUntil ?? null,
         },
         ...(input.others ?? []).map((other) => ({
           issueKey: IssueThreadLinks.issueThreadKey(other),
@@ -282,6 +285,7 @@ function harness<A, E>(
           leftAt: null,
           startQueued: false,
           waitingSince: null,
+          snoozedUntil: null,
         })),
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
@@ -1476,6 +1480,95 @@ describe("PlaybookStartService.start on a board that waits for blockers", () => 
   );
 });
 
+// Fork-only (jehhynes/t3code#86)
+describe("PlaybookStartService.start on a snoozed issue", () => {
+  const wake = "2026-11-12T09:00:00.000Z";
+
+  it.effect("snoozes the waiting issue until a time stored as UTC, again, then wakes it", () =>
+    harness({}, ({ service, stored, refreshed, launched }) =>
+      Effect.gen(function* () {
+        const snooze = (until: string | null) =>
+          service.start({ playbook: "develop", snooze: entry, until }).pipe(Effect.result);
+        expect(yield* snooze("2026-11-11T22:00:00-05:00")).toMatchObject({
+          _tag: "Success",
+          success: { threadId: null },
+        });
+        expect(yield* stored).toMatchObject({ snoozedUntil: "2026-11-12T03:00:00.000Z" });
+        expect(yield* snooze(wake)).toMatchObject({ _tag: "Success" });
+        expect(yield* stored).toMatchObject({ snoozedUntil: wake, startedBy: null });
+        expect(yield* snooze(null)).toMatchObject({ _tag: "Success" });
+        expect(yield* stored).toMatchObject({ snoozedUntil: null });
+        expect(refreshed()).toBe(3);
+
+        // The test clock stands at 1970, so this time has passed.
+        expect(yield* snooze("1969-12-31T00:00:00.000Z")).toMatchObject({
+          _tag: "Failure",
+          failure: { detail: "That snooze time has passed. Choose another time." },
+        });
+        expect(yield* snooze("soon")).toMatchObject({ _tag: "Failure" });
+        expect(
+          yield* service
+            .start({ playbook: "ship", snooze: entry, until: wake })
+            .pipe(Effect.result),
+        ).toMatchObject({
+          _tag: "Failure",
+          failure: {
+            detail: "This issue is not waiting for playbook ship; refresh the Issues page.",
+          },
+        });
+        expect(launched).toEqual([]);
+        expect(refreshed()).toBe(3);
+      }),
+    ),
+  );
+
+  it.effect.each([
+    { name: "Start", input: {} },
+    { name: "Retry", input: { startFailure: "The launch failed." } },
+    { name: "Start on an issue with an open thread", input: { openIssueKeys: [issueKey] } },
+    { name: "Start on an issue held by a blocker", input: { held: true } },
+    { name: "Start with every slot in use", input: { running: 2 } },
+  ])("$name starts, sends and queues nothing, whatever the client's entry says", ({ input }) =>
+    Effect.gen(function* () {
+      // The default entry, as a client sends it, claims no snooze; the record holds one.
+      const { result, launched, sent, linked, stored } = yield* start({
+        ...input,
+        playbook: "develop",
+        snoozedUntil: wake,
+      });
+
+      expect(result).toMatchObject({
+        _tag: "Failure",
+        failure: { detail: "#6 is snoozed; unsnooze it to start it now." },
+      });
+      expect(launched).toEqual([]);
+      expect(sent).toEqual([]);
+      expect(linked).toEqual([]);
+      expect(stored).toMatchObject({
+        startedBy: null,
+        startQueued: false,
+        waitingSince: null,
+        snoozedUntil: wake,
+      });
+    }),
+  );
+
+  it.effect("does not start a snoozed issue by itself, nor count the snooze as its try", () =>
+    Effect.gen(function* () {
+      const { result, launched, stored } = yield* start({
+        playbook: "deploy",
+        waitingWith: "deploy",
+        auto: true,
+        snoozedUntil: wake,
+      });
+
+      expect(result).toMatchObject({ _tag: "Failure" });
+      expect(launched).toEqual([]);
+      expect(stored).toMatchObject({ startedBy: null, autoTried: false, snoozedUntil: wake });
+    }),
+  );
+});
+
 // Fork-only (jehhynes/t3code#76)
 describe("PlaybookStartService.start with every slot in use", () => {
   it.effect.each([
@@ -1876,11 +1969,18 @@ describe("PlaybookStartService.startOnSend", () => {
     }),
   );
 
-  it.effect("starts the issue when I send the draft while every slot is in use", () =>
+  it.effect.each([
+    { name: "while every slot is in use", input: { running: 2 } },
+    // Fork-only (jehhynes/t3code#86): the claim clears the snooze.
+    { name: "while it is snoozed", input: { snoozedUntil: "2026-11-12T09:00:00.000Z" } },
+  ])("starts the issue when I send the draft $name", ({ input }) =>
     Effect.gen(function* () {
-      const { stored, linked } = yield* sent({ running: 2, messages: [composerMessage()] });
+      const { stored, linked } = yield* sent({ ...input, messages: [composerMessage()] });
 
-      expect(stored).toMatchObject({ startedBy: `issue-playbook-draft:${draftThreadId}` });
+      expect(stored).toMatchObject({
+        startedBy: `issue-playbook-draft:${draftThreadId}`,
+        snoozedUntil: null,
+      });
       expect(linked).toHaveLength(1);
     }),
   );

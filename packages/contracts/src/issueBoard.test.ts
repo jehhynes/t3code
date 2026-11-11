@@ -29,15 +29,28 @@ const entry = {
 const decodeOlderStartInput = Schema.decodeUnknownSync(
   Schema.Struct({ playbook: Schema.String, entry: IssueBoardEntry }),
 );
+// The Start input of a server older than jehhynes/t3code#86.
+const decodeStartInputBeforeSnooze = Schema.decodeUnknownSync(
+  Schema.Union([
+    Schema.Struct({ playbook: Schema.String, entry: IssueBoardEntry }),
+    Schema.Struct({ playbook: Schema.String, cancelQueued: IssueBoardEntry }),
+  ]),
+);
 const decodeStartInput = Schema.decodeUnknownSync(IssuePlaybookStartInput);
 
 describe("IssuePlaybookStartInput", () => {
-  it("takes a queued start back in a form an older server refuses rather than starts", () => {
+  it("takes a queued start back, or snoozes or wakes an issue, in a form an older server refuses rather than starts", () => {
     const cancel = { playbook: "develop", cancelQueued: entry };
     expect(decodeStartInput(cancel)).toMatchObject({
       cancelQueued: { key: "6" },
     });
     expect(() => decodeOlderStartInput(cancel)).toThrow();
     expect(decodeStartInput({ playbook: "develop", entry })).toMatchObject({ entry: { key: "6" } });
+    // Snooze and wake (jehhynes/t3code#86) have neither key either.
+    for (const until of ["2026-11-12T09:00:00.000Z", null]) {
+      const snooze = { playbook: "develop", snooze: entry, until };
+      expect(decodeStartInput(snooze)).toMatchObject({ snooze: { key: "6" }, until });
+      expect(() => decodeStartInputBeforeSnooze(snooze)).toThrow();
+    }
   });
 });

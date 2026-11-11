@@ -203,6 +203,7 @@ describe("IssueThreadSlots", () => {
                       leftAt: null,
                       startQueued: false,
                       waitingSince: null,
+                      snoozedUntil: null,
                     },
                   ],
                 ]),

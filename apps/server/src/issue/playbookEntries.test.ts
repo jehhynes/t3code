@@ -5,6 +5,7 @@ import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybook
 import {
   heldIn,
   reconcilePlaybookEntries,
+  snoozedUntil,
   startFailure,
   waitingFields,
   waitingPlaybook,
@@ -67,6 +68,7 @@ const row = (
   leftAt: string | null = null,
   startQueued = false,
   waitingSince: string | null = now,
+  snoozedUntil: string | null = null,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -77,8 +79,10 @@ const row = (
   leftAt,
   startQueued,
   waitingSince,
+  snoozedUntil,
 });
 const failed = "The project has no default model.";
+const wake = "2026-11-12T09:00:00.000Z";
 
 describe("reconcilePlaybookEntries", () => {
   it.each<{
@@ -115,7 +119,7 @@ describe("reconcilePlaybookEntries", () => {
       name: "an issue that moves to another selection waits with it from the read, open thread or not, untried, and has not left",
       rows: [
         row("1", "develop", started, "acme/1", true, null, earlier, false, earlier),
-        row("2", "develop", null, "acme/1", true, failed, null, true, earlier),
+        row("2", "develop", null, "acme/1", true, failed, null, true, earlier, wake),
       ],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
       writes: [row("1", "ship", null, "acme/1", false, null, earlier), row("2", "ship", null)],
@@ -124,7 +128,7 @@ describe("reconcilePlaybookEntries", () => {
       name: "an issue that leaves every selection, or the board, leaves its entry at the read's time",
       rows: [
         row("1", "develop", started, "acme/1", false, null, earlier),
-        row("2", "develop", null, "acme/1", true, failed, null, true),
+        row("2", "develop", null, "acme/1", true, failed, null, true, now, wake),
         row("3", null, null, "acme/1", false, null, earlier),
       ],
       boards: [board(1, [entry("1", null), entry("3", null)])],
@@ -141,7 +145,10 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "a board that is off or failed changes none of its issues",
-      rows: [row("1", "develop", null, "acme/1"), row("2", "develop", started, "acme/2")],
+      rows: [
+        row("1", "develop", null, "acme/1", false, null, null, false, now, wake),
+        row("2", "develop", started, "acme/2"),
+      ],
       boards: [board(1, [], "off"), board(2, [], "failed")],
       writes: [],
     },
@@ -159,9 +166,9 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moved to another board follows it, keeping its entry",
-      rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true, earlier)],
+      rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true, earlier, wake)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true, earlier)],
+      writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true, earlier, wake)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
@@ -207,6 +214,17 @@ describe("reconcilePlaybookEntries", () => {
       startsBySelf: false,
     });
     expect(fields(undefined)).toEqual({ startQueued: false, startsBySelf: false });
+  });
+
+  it("holds a snoozed entry only while it waits and its wake is ahead (jehhynes/t3code#86)", () => {
+    const snoozed = row("1", "develop", null, "acme/1", false, null, null, false, now, wake);
+    expect(snoozedUntil(snoozed, now)).toBe(wake);
+    expect(snoozedUntil(snoozed, wake)).toBeNull();
+    expect(snoozedUntil({ ...snoozed, startedBy: started }, now)).toBeNull();
+    expect(snoozedUntil(row("1", "develop", null), now)).toBeNull();
+    // The client is sent the stored wake while the entry waits, and compares it with its own clock.
+    expect(waitingFields(snoozed, new Set()).snoozedUntil).toBe(wake);
+    expect(waitingFields({ ...snoozed, startedBy: started }, new Set()).snoozedUntil).toBeNull();
   });
 });
 

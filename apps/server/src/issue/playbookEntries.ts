@@ -7,7 +7,11 @@ import {
 } from "@t3tools/contracts";
 
 import { boardSourceKey } from "../persistence/IssueBoardSources.ts";
-import { OPEN_THREAD, type PlaybookEntryRow } from "../persistence/IssuePlaybookEntries.ts";
+import {
+  OPEN_THREAD,
+  snoozedPast,
+  type PlaybookEntryRow,
+} from "../persistence/IssuePlaybookEntries.ts";
 import { issueThreadKey } from "../persistence/IssueThreadLinks.ts";
 
 const samePlaybook = (a: string | null, b: string | null) =>
@@ -21,9 +25,16 @@ export const waitingPlaybook = (row: PlaybookEntryRow | undefined): string | nul
 export const startFailure = (row: PlaybookEntryRow | undefined): string | null =>
   waitingPlaybook(row) === null ? null : (row?.startFailure ?? null);
 
+/** Until when the waiting entry is snoozed past `now`, or null (jehhynes/t3code#86). */
+export const snoozedUntil = (row: PlaybookEntryRow | undefined, now: string): string | null =>
+  waitingPlaybook(row) !== null && row !== undefined && snoozedPast(row.snoozedUntil, now)
+    ? row.snoozedUntil
+    : null;
+
 /**
- * What a board entry shows of its record: the playbook it waits with, its last failure, and whether
- * the server starts it by itself once no open blocker is left (jehhynes/t3code#65).
+ * What a board entry shows of its record: the playbook it waits with, its last failure, whether
+ * the server starts it by itself once no open blocker is left (jehhynes/t3code#65), and until when
+ * it is snoozed (#86), which the client compares with its own clock.
  */
 export function waitingFields(
   row: PlaybookEntryRow | undefined,
@@ -39,6 +50,7 @@ export function waitingFields(
     startsBySelf:
       startQueued ||
       (playbook !== null && selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false),
+    snoozedUntil: playbook === null ? null : (row?.snoozedUntil ?? null),
   };
 }
 
@@ -159,6 +171,7 @@ export function reconcilePlaybookEntries(input: {
         leftAt: null,
         startQueued: false,
         waitingSince: input.now,
+        snoozedUntil: null,
       });
     } else if (!deciding.has(row.board)) {
       continue;
@@ -173,6 +186,7 @@ export function reconcilePlaybookEntries(input: {
         leftAt: entry.playbook === null ? input.now : row.leftAt,
         startQueued: false,
         waitingSince: input.now,
+        snoozedUntil: null,
       });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
@@ -189,6 +203,7 @@ export function reconcilePlaybookEntries(input: {
         leftAt: input.now,
         startQueued: false,
         waitingSince: input.now,
+        snoozedUntil: null,
       });
     }
   }

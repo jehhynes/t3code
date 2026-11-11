@@ -44,12 +44,21 @@ const PlaybookEntryRow = Schema.Struct({
    * null on rows from before jehhynes/t3code#76. Starts that wait for a free slot go oldest first.
    */
   waitingSince: Schema.NullOr(Schema.String),
+  /**
+   * Until when the waiting entry is snoozed, as a UTC ISO time, or null; nothing starts it before
+   * then, and a new entry clears it (jehhynes/t3code#86).
+   */
+  snoozedUntil: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
 type Rows = ReadonlyMap<string, PlaybookEntryRow>;
 
 export const OPEN_THREAD = "open-thread";
+
+/** Whether a snooze, as stored, lasts past `now`; both are UTC ISO times, which order as strings. */
+export const snoozedPast = (snoozedUntil: string | null, now: string | undefined): boolean =>
+  now !== undefined && snoozedUntil !== null && snoozedUntil > now;
 
 export class IssuePlaybookEntriesRepository extends Context.Service<
   IssuePlaybookEntriesRepository,
@@ -72,6 +81,8 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       readonly auto?: boolean;
       /** Whether the playbook starts by itself. */
       readonly selfStarting?: boolean;
+      /** A UTC ISO time; refuses an entry snoozed past it. A draft's send passes none. */
+      readonly now?: string;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Queues or takes back a Start of the issue's entry while it waits with this playbook; answers
@@ -82,8 +93,18 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
       readonly issueKey: string;
       readonly playbook: string;
       readonly queued: boolean;
-      /** An ISO time. */
+      /** A UTC ISO time; queueing refuses an entry snoozed past it. */
       readonly now: string;
+    }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
+    /**
+     * Snoozes the issue's entry until `until`, or wakes it with null, while it waits with this
+     * playbook; answers whether it did. Keeps everything else on the entry.
+     */
+    readonly setSnoozed: (input: {
+      readonly issueKey: string;
+      readonly playbook: string;
+      /** A UTC ISO time. */
+      readonly until: string | null;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Makes the entry wait again while this claim still holds it, with why its start failed; a
@@ -110,7 +131,8 @@ const make = Effect.gen(function* () {
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
         started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
-        left_at AS "leftAt", start_queued AS "startQueued", waiting_since AS "waitingSince"
+        left_at AS "leftAt", start_queued AS "startQueued", waiting_since AS "waitingSince",
+        snoozed_until AS "snoozedUntil"
       FROM issue_playbook_entries
     `,
   });
@@ -130,12 +152,12 @@ const make = Effect.gen(function* () {
           yield* sql`
             INSERT INTO issue_playbook_entries (
               issue_key, board, playbook, started_by, auto_tried, start_failure, left_at,
-              start_queued, waiting_since
+              start_queued, waiting_since, snoozed_until
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
               ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt},
-              ${row.startQueued ? 1 : 0}, ${row.waitingSince}
+              ${row.startQueued ? 1 : 0}, ${row.waitingSince}, ${row.snoozedUntil}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
@@ -145,7 +167,8 @@ const make = Effect.gen(function* () {
               start_failure = excluded.start_failure,
               left_at = excluded.left_at,
               start_queued = excluded.start_queued,
-              waiting_since = excluded.waiting_since
+              waiting_since = excluded.waiting_since,
+              snoozed_until = excluded.snoozed_until
           `;
           next.set(row.issueKey, row);
         }
@@ -162,9 +185,10 @@ const make = Effect.gen(function* () {
           startedBy: string | null;
           autoTried: number;
           startQueued: number;
+          snoozedUntil: string | null;
         }>`
           SELECT playbook AS "playbook", started_by AS "startedBy", auto_tried AS "autoTried",
-            start_queued AS "startQueued"
+            start_queued AS "startQueued", snoozed_until AS "snoozedUntil"
           FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
         `;
         // Names compare as selection compares them, which SQLite's ASCII-only lower() does not.
@@ -172,6 +196,7 @@ const make = Effect.gen(function* () {
           row === undefined ||
           row.startedBy !== null ||
           row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
+          snoozedPast(row.snoozedUntil, input.now) ||
           (input.auto === true &&
             row.startQueued === 0 &&
             (input.selfStarting !== true || row.autoTried !== 0))
@@ -181,7 +206,7 @@ const make = Effect.gen(function* () {
         yield* sql`
           UPDATE issue_playbook_entries
           SET started_by = ${input.startedBy}, auto_tried = ${input.auto === true ? 1 : row.autoTried},
-            start_queued = 0
+            start_queued = 0, snoozed_until = NULL
           WHERE issue_key = ${input.issueKey}
         `;
         return true;
@@ -191,14 +216,21 @@ const make = Effect.gen(function* () {
     ),
     setQueued: Effect.fn("IssuePlaybookEntriesRepository.setQueued")(
       function* (input) {
-        const [row] = yield* sql<{ playbook: string | null; startedBy: string | null }>`
-          SELECT playbook AS "playbook", started_by AS "startedBy"
+        const [row] = yield* sql<{
+          playbook: string | null;
+          startedBy: string | null;
+          snoozedUntil: string | null;
+        }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy",
+            snoozed_until AS "snoozedUntil"
           FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
         `;
         if (
           row === undefined ||
           row.startedBy !== null ||
-          row.playbook?.toLowerCase() !== input.playbook.toLowerCase()
+          row.playbook?.toLowerCase() !== input.playbook.toLowerCase() ||
+          // Cancel start still takes a snoozed issue's queued start back.
+          (input.queued && snoozedPast(row.snoozedUntil, input.now))
         ) {
           return false;
         }
@@ -213,6 +245,28 @@ const make = Effect.gen(function* () {
       },
       sql.withTransaction,
       Effect.mapError(sqlError("queueIssuePlaybookEntry")),
+    ),
+    setSnoozed: Effect.fn("IssuePlaybookEntriesRepository.setSnoozed")(
+      function* (input) {
+        const [row] = yield* sql<{ playbook: string | null; startedBy: string | null }>`
+          SELECT playbook AS "playbook", started_by AS "startedBy"
+          FROM issue_playbook_entries WHERE issue_key = ${input.issueKey}
+        `;
+        if (
+          row === undefined ||
+          row.startedBy !== null ||
+          row.playbook?.toLowerCase() !== input.playbook.toLowerCase()
+        ) {
+          return false;
+        }
+        yield* sql`
+          UPDATE issue_playbook_entries SET snoozed_until = ${input.until}
+          WHERE issue_key = ${input.issueKey}
+        `;
+        return true;
+      },
+      sql.withTransaction,
+      Effect.mapError(sqlError("snoozeIssuePlaybookEntry")),
     ),
     release: Effect.fn("IssuePlaybookEntriesRepository.release")(
       function* (input) {

@@ -59,6 +59,7 @@ const entry = (key: string, overrides: Partial<IssueBoardEntry> = {}): IssueBoar
   ...overrides,
 });
 const issueKey = (key: string) => `github github.com acme/web ${key}`;
+const now = "2026-11-11T12:00:00.000Z";
 
 const result = (
   entries: ReadonlyArray<IssueBoardEntry>,
@@ -90,6 +91,7 @@ const row = (
   leftAt: null,
   startQueued: false,
   waitingSince: null,
+  snoozedUntil: null,
   ...overrides,
 });
 
@@ -107,7 +109,7 @@ describe("autoStartEntries", () => {
       entry("6"),
     ];
     expect(
-      autoStartEntries({ result: result(listed), playbooks, rows }).map((s) => s.entry.key),
+      autoStartEntries({ result: result(listed), playbooks, rows, now }).map((s) => s.entry.key),
     ).toEqual(["1"]);
     // Nothing starts while any playbook cannot select, or from a board that is off or failed.
     for (const blocked of [
@@ -115,7 +117,7 @@ describe("autoStartEntries", () => {
       { ...result(listed), boards: [{ ...result(listed).boards[0]!, enabled: false }] },
       { ...result(listed), boards: [{ ...result(listed).boards[0]!, error: "Bad credentials" }] },
     ]) {
-      expect(autoStartEntries({ result: blocked, playbooks, rows })).toEqual([]);
+      expect(autoStartEntries({ result: blocked, playbooks, rows, now })).toEqual([]);
     }
   });
 
@@ -152,7 +154,7 @@ describe("autoStartEntries", () => {
       };
     };
     const keys = (read: IssueBoardResult) =>
-      autoStartEntries({ result: read, playbooks, rows }).map((s) => s.entry.key);
+      autoStartEntries({ result: read, playbooks, rows, now }).map((s) => s.entry.key);
 
     expect(keys(waiting([blocker], true))).toEqual([]);
     // Once no blocker is left: the untried self-starting one, and each queued one, tried or not.
@@ -160,6 +162,23 @@ describe("autoStartEntries", () => {
     // A board that does not wait for blockers starts them as before.
     expect(keys(waiting([blocker]))).toEqual(["1", "2", "3"]);
     expect(keys(waiting([blocker], false))).toEqual(["1", "2", "3"]);
+  });
+
+  it("holds a snoozed issue until its wake, self-starting or queued, without its try (jehhynes/t3code#86)", () => {
+    const wake = "2026-11-11T13:00:00.000Z";
+    const rows = new Map(
+      [
+        row("1", false, { snoozedUntil: wake }),
+        row("2", false, { playbook: "develop", startQueued: true, snoozedUntil: wake }),
+        row("3", false, { snoozedUntil: "2026-11-11T11:00:00.000Z" }),
+      ].map((r) => [r.issueKey, r]),
+    );
+    const listed = result([entry("1"), entry("2", { waitingPlaybook: "develop" }), entry("3")]);
+    const keys = (at: string) =>
+      autoStartEntries({ result: listed, playbooks, rows, now: at }).map((s) => s.entry.key);
+
+    expect(keys(now)).toEqual(["3"]);
+    expect(keys(wake)).toEqual(["1", "2", "3"]);
   });
 
   it("orders the waiting issues by when they began to wait, a record without a time first", () => {
@@ -184,7 +203,7 @@ describe("autoStartEntries", () => {
       entry("5"),
     ];
     expect(
-      autoStartEntries({ result: result(listed), playbooks, rows }).map((s) => s.entry.key),
+      autoStartEntries({ result: result(listed), playbooks, rows, now }).map((s) => s.entry.key),
     ).toEqual(["4", "2", "3", "5", "1"]);
   });
 });

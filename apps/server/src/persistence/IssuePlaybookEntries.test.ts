@@ -25,6 +25,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           leftAt,
           startQueued: false,
           waitingSince: entered,
+          snoozedUntil: null,
         },
       ]);
 
@@ -39,6 +40,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       leftAt: null,
       startQueued: false,
       waitingSince: entered,
+      snoozedUntil: null,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -84,6 +86,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         leftAt: null,
         startQueued: false,
         waitingSince: null,
+        snoozedUntil: null,
       },
     ]);
     assert.isTrue(
@@ -119,6 +122,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       leftAt: null,
       startQueued: false,
       waitingSince: entered,
+      snoozedUntil: null,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);
@@ -164,6 +168,38 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     assert.isTrue(yield* store.setQueued(queue));
     assert.strictEqual((yield* store.list).get(issueKey)?.startFailure, "The launch failed.");
     assert.isTrue(yield* store.claim({ ...byItself, startedBy: "issue-playbook:k" }));
+
+    // A snooze holds the waiting entry's claim and queue until its wake (jehhynes/t3code#86).
+    yield* enter(null);
+    yield* enter("develop");
+    const wake = "2026-11-11T13:00:00.000Z";
+    const before = "2026-11-11T12:59:59.999Z";
+    const snooze = { issueKey, playbook: "Develop", until: "2026-11-11T12:30:00.000Z" };
+    assert.isFalse(yield* store.setSnoozed({ ...snooze, playbook: "ship" }));
+    assert.isTrue(yield* store.setQueued(queue));
+    assert.isTrue(yield* store.setSnoozed(snooze));
+    // Snoozing again replaces the wake.
+    assert.isTrue(yield* store.setSnoozed({ ...snooze, until: wake }));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      startQueued: true,
+      snoozedUntil: wake,
+    });
+    const snoozedClaim = { ...byItself, startedBy: "issue-playbook:l", now: before };
+    assert.isFalse(yield* store.claim(snoozedClaim));
+    assert.isFalse(yield* store.claim({ ...manual, startedBy: "issue-playbook:m", now: before }));
+    // Cancel start still takes the queue back, and queueing again waits for the wake.
+    assert.isTrue(yield* store.setQueued({ ...queue, queued: false }));
+    assert.isFalse(yield* store.setQueued({ ...queue, now: before }));
+    assert.isTrue(yield* store.setQueued({ ...queue, now: wake }));
+    // At the wake it starts, and the claim clears the snooze.
+    assert.isTrue(yield* store.claim({ ...snoozedClaim, now: wake }));
+    assert.deepInclude((yield* store.list).get(issueKey), { snoozedUntil: null });
+    // A draft's send claims with no time, so a snooze does not hold it.
+    yield* enter(null);
+    yield* enter("develop");
+    assert.isTrue(yield* store.setSnoozed({ ...snooze, until: wake }));
+    assert.isTrue(yield* store.claim({ ...manual, startedBy: "issue-playbook-draft:n" }));
+    assert.isFalse(yield* store.setSnoozed({ ...snooze, until: null }));
   }).pipe(
     Effect.provide(
       IssuePlaybookEntries.layer.pipe(
