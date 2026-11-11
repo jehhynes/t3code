@@ -5,6 +5,7 @@ import { projectTurnItemForWire } from "./WireProjection.ts";
 import * as Stream from "effect/Stream";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import { makeThreadFind } from "./ThreadFind.ts";
+import * as ThreadStage from "./ThreadStage.ts"; // Fork-only (jehhynes/t3code#73)
 import type {
   OrchestrationV2ThreadLinkMetadata,
   OrchestrationV2SearchThreadInput,
@@ -1050,6 +1051,7 @@ type ShellThreadRow = {
   readonly latest_user_message_at: string | null;
   readonly latest_user_authored_message_at: string | null;
   readonly has_actionable_proposed_plan: number;
+  readonly stage: string | null; // Fork-only (jehhynes/t3code#73)
 };
 
 type ShellRunRow = {
@@ -1688,6 +1690,7 @@ export function threadShellFromProjection(
       projection.providerThreads,
       projection.thread.activeProviderThreadId,
     ),
+    ...ThreadStage.field(ThreadStage.ofProjection(projection, runs)), // Fork-only (jehhynes/t3code#73)
     itemCount: activeLocalTurnItems(projection).length,
     visibleItemCount: projection.visibleTurnItems.length,
     createdAt: projection.thread.createdAt,
@@ -1791,6 +1794,7 @@ type ShellThreadState = {
   readonly pendingBackgroundTasks: OrchestrationV2ThreadShell["pendingBackgroundTasks"];
   readonly providerInstanceHistory: OrchestrationV2ThreadShell["providerInstanceHistory"];
   readonly goal: OrchestrationV2ThreadShell["goal"];
+  readonly stage: string | null; // Fork-only (jehhynes/t3code#73)
   readonly itemCount: number;
   readonly runlessItemCount: number;
   readonly updatedAt: OrchestrationV2ThreadProjection["updatedAt"];
@@ -1955,6 +1959,7 @@ function shellFromState(input: {
     pendingBackgroundTasks: input.state.pendingBackgroundTasks,
     providerInstanceHistory: input.state.providerInstanceHistory,
     goal: input.state.goal,
+    ...ThreadStage.field(input.state.stage), // Fork-only (jehhynes/t3code#73)
     itemCount: input.state.itemCount,
     visibleItemCount: input.visibleItemCount,
     createdAt: input.state.thread.createdAt,
@@ -6348,6 +6353,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 ORDER BY message.updated_at DESC, message.message_id DESC
                 LIMIT 1
               ) AS latest_user_authored_message_at,
+              ${ThreadStage.column(sql, isSilentShellRun)} AS stage, -- Fork-only (jehhynes/t3code#73)
               EXISTS (
                 SELECT 1
                 FROM orchestration_v2_projection_plans plan
@@ -6963,6 +6969,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
             providerThreadsByThreadId.get(thread.id) ?? [],
             thread.activeProviderThreadId,
           ),
+          stage: row.stage, // Fork-only (jehhynes/t3code#73)
           itemCount: shellItemCountsByThreadId.get(thread.id)?.itemCount ?? 0,
           runlessItemCount: shellItemCountsByThreadId.get(thread.id)?.runlessItemCount ?? 0,
           updatedAt: thread.updatedAt,

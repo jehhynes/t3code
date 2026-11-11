@@ -2157,6 +2157,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed([])),
   ),
   goal: Schema.optional(Schema.NullOr(OrchestrationV2ProviderGoal)),
+  /** Fork-only (jehhynes/t3code#73): the in-progress todo item of the running turn. */
+  stage: Schema.optional(TrimmedNonEmptyString),
   itemCount: NonNegativeInt,
   visibleItemCount: NonNegativeInt,
   createdAt: Schema.DateTimeUtc,
