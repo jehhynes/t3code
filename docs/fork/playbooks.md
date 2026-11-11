@@ -122,7 +122,8 @@ the thread keeps its own model and modes. Otherwise Start launches the playbook'
 issue's project, linked to the issue, in the folder that
 [Which folder a thread runs in](#which-folder-a-thread-runs-in) describes. Either way the issue leaves the
 list, unless an open blocker holds it on a board that
-[waits for blockers](#wait-for-blockers): Start then queues it and the row stays. An issue whose
+[waits for blockers](#wait-for-blockers), or [every slot is in use](#run-a-few-at-a-time): Start
+then queues it and the row stays. An issue whose
 repository has no T3 Code project shows that instead of Start.
 
 To change a start before it runs, open the arrow beside Start or Retry and choose **Start with
@@ -322,6 +323,8 @@ with the Issues page closed and no client connected.
   start at the next board read, except those whose start by itself already failed.
 - On a board that [waits for blockers](#wait-for-blockers), an issue with an open blocker does not
   start until a read shows none, and waiting does not use up its one start.
+- While [every slot is in use](#run-a-few-at-a-time), it waits for one, and waiting does not use up
+  its one start either.
 
 ## Wait for blockers
 
@@ -352,6 +355,33 @@ interval of its blocker closing or of the dependency being removed.
 - A thread already open for the issue is not stopped or settled when the issue gains a blocker.
 - There is no override for one issue: to start it before its blocker closes, remove the dependency
   on GitHub or turn the setting off.
+
+## Run a few at a time
+
+At most two issue threads run at once, so a board with ten ready issues does not start ten agents
+together. Set `maxRunningIssueThreads` in `settings.json`, from 1 to 10, to change how many; another
+value is a mistake in the settings file, which T3 Code then reads as its defaults. A change applies
+to the next start.
+
+- A thread holds a slot while it is linked to a board issue, is not settled, archived or deleted,
+  and has a turn running or being prepared, worktree included. A thread that waits for your
+  approval or answer, an idle thread and a snoozed thread hold none, and neither does a thread with
+  no board issue.
+- A playbook that [starts by itself](#start-by-itself) starts an issue only while a slot is free.
+  **Start** or **Retry** with no free slot queues the issue, as on a held issue. Either row then
+  reads "Starts when a thread finishes"; a queued row has **Cancel start** to take it back. A row
+  that waits for your Start shows Start as usual while every slot is in use.
+- Queued issues, and issues whose playbook starts by itself, start in the order they began to wait,
+  within seconds of a slot freeing, not only at the next board read. An issue queued by Start waits
+  from when you first pressed it. The queue survives a restart of T3 Code; a turn the restart ended
+  holds no slot.
+- An issue with an open blocker on a board that waits for blockers starts only once its blocker has
+  closed and a slot is free.
+- To start one issue now, open the arrow beside its button and choose **Start with guidance…** or
+  another playbook: a draft you send starts at once, whatever runs.
+- A message you send to an idle issue thread runs at once, so more threads than slots can run for a
+  while; nothing is stopped to get back under the limit. Threads that agents or scheduled tasks
+  start are not limited.
 
 ## Mistakes
 

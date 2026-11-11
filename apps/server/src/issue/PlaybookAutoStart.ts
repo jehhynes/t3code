@@ -12,6 +12,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as Semaphore from "effect/Semaphore";
 import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
@@ -34,7 +35,8 @@ export interface AutoStart {
 /**
  * The issues to start by themselves: each waits with a playbook that starts by itself and was not
  * tried yet, or was queued by Start (jehhynes/t3code#65); has a project; and has no open blocker
- * on a board that waits for blockers. None while any playbook cannot select.
+ * on a board that waits for blockers. None while any playbook cannot select. Oldest wait first, a
+ * record from before jehhynes/t3code#76 before any, then in board order.
  */
 export function autoStartEntries(input: {
   readonly result: IssueBoardResult;
@@ -43,7 +45,7 @@ export function autoStartEntries(input: {
 }): ReadonlyArray<AutoStart> {
   if (input.result.playbookErrors.length > 0) return [];
   const selfStarting = selfStartingPlaybooks(input.playbooks);
-  const starts: AutoStart[] = [];
+  const starts: Array<AutoStart & { readonly waitingSince: string }> = [];
   for (const board of input.result.boards) {
     if (!board.enabled || board.error !== null) continue;
     for (const entry of board.entries) {
@@ -56,10 +58,15 @@ export function autoStartEntries(input: {
       const row = input.rows.get(issueThreadKey(entry));
       const untried = selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false;
       if (!untried && row?.startQueued !== true) continue;
-      starts.push({ playbook, entry });
+      starts.push({ playbook, entry, waitingSince: row?.waitingSince ?? "" });
     }
   }
-  return starts;
+  // Stable, and ISO times order as strings.
+  return starts
+    .toSorted((a, b) =>
+      a.waitingSince < b.waitingSince ? -1 : a.waitingSince > b.waitingSince ? 1 : 0,
+    )
+    .map(({ playbook, entry }) => ({ playbook, entry }));
 }
 
 const run = Effect.gen(function* () {
@@ -72,6 +79,8 @@ const run = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
 
+  // One pass at a time, so a board read's pass and a freed slot's pass do not race.
+  const passes = yield* Semaphore.make(1);
   const startWaiting = Effect.fn("PlaybookAutoStart.startWaiting")(function* (
     result: IssueBoardResult,
   ) {
@@ -82,25 +91,30 @@ const run = Effect.gen(function* () {
     for (const candidate of autoStartEntries({ result, playbooks, rows })) {
       const key = issueThreadKey(candidate.entry);
       // Start checks again, against the latest read, that the issue still waits.
-      yield* starts.start(candidate, { auto: true }).pipe(
+      const started = yield* starts.start(candidate, { auto: true }).pipe(
         Effect.tap(({ threadId }) =>
-          Effect.logInfo("A playbook started by itself", {
-            issue: key,
-            playbook: candidate.playbook,
-            threadId,
-          }),
+          threadId === null
+            ? Effect.void
+            : Effect.logInfo("A playbook started by itself", {
+                issue: key,
+                playbook: candidate.playbook,
+                threadId,
+              }),
         ),
+        Effect.map(({ threadId }) => threadId !== null),
         // The issue waits for Start; nothing tries it again by itself.
         Effect.catch((error) =>
           Effect.logWarning("A playbook could not start by itself", {
             issue: key,
             playbook: candidate.playbook,
             detail: error.detail,
-          }),
+          }).pipe(Effect.as(true)),
         ),
       );
+      // No slot is free; the rest wait their turn (jehhynes/t3code#76).
+      if (!started) return;
     }
-  });
+  }, passes.withPermits(1));
 
   // A value meant as minutes or seconds would read GitHub without pause and use up its limit.
   const effectiveInterval = (setting: Duration.Duration) =>
@@ -138,6 +152,17 @@ const run = Effect.gen(function* () {
   yield* forkParked(
     Effect.forever(
       issues.board.pipe(Effect.ignoreCause({ log: true }), Effect.andThen(waitForNextRead)),
+    ),
+  );
+  // Fork-only (jehhynes/t3code#76): a freed slot starts what waits for one without a board read.
+  // The latest read is copied out first, because a start takes the board's lock itself.
+  yield* forkParked(
+    Effect.forever(
+      starts.awaitFreedSlot.pipe(
+        Effect.andThen(issues.withLatestBoard(Effect.succeed)),
+        Effect.flatMap((latest) => (latest === null ? Effect.void : startWaiting(latest))),
+        Effect.ignoreCause({ log: true }),
+      ),
     ),
   );
 });

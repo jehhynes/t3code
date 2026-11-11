@@ -39,6 +39,11 @@ const PlaybookEntryRow = Schema.Struct({
    * by itself once none is left; a new entry clears it (jehhynes/t3code#65).
    */
   startQueued: Schema.BooleanFromBit,
+  /**
+   * When the entry began to wait, as an ISO time: when it began, or when Start last queued it;
+   * null on rows from before jehhynes/t3code#76. Starts that wait for a free slot go oldest first.
+   */
+  waitingSince: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -70,12 +75,15 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Queues or takes back a Start of the issue's entry while it waits with this playbook; answers
-     * whether it did. Keeps the entry's try and its last failure.
+     * whether it did. Keeps the entry's try and its last failure. An entry that becomes queued
+     * waits from `now`; one already queued keeps its place.
      */
     readonly setQueued: (input: {
       readonly issueKey: string;
       readonly playbook: string;
       readonly queued: boolean;
+      /** An ISO time. */
+      readonly now: string;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Makes the entry wait again while this claim still holds it, with why its start failed; a
@@ -102,7 +110,7 @@ const make = Effect.gen(function* () {
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
         started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
-        left_at AS "leftAt", start_queued AS "startQueued"
+        left_at AS "leftAt", start_queued AS "startQueued", waiting_since AS "waitingSince"
       FROM issue_playbook_entries
     `,
   });
@@ -122,12 +130,12 @@ const make = Effect.gen(function* () {
           yield* sql`
             INSERT INTO issue_playbook_entries (
               issue_key, board, playbook, started_by, auto_tried, start_failure, left_at,
-              start_queued
+              start_queued, waiting_since
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
               ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt},
-              ${row.startQueued ? 1 : 0}
+              ${row.startQueued ? 1 : 0}, ${row.waitingSince}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
@@ -136,7 +144,8 @@ const make = Effect.gen(function* () {
               auto_tried = excluded.auto_tried,
               start_failure = excluded.start_failure,
               left_at = excluded.left_at,
-              start_queued = excluded.start_queued
+              start_queued = excluded.start_queued,
+              waiting_since = excluded.waiting_since
           `;
           next.set(row.issueKey, row);
         }
@@ -194,7 +203,10 @@ const make = Effect.gen(function* () {
           return false;
         }
         yield* sql`
-          UPDATE issue_playbook_entries SET start_queued = ${input.queued ? 1 : 0}
+          UPDATE issue_playbook_entries
+          SET start_queued = ${input.queued ? 1 : 0},
+            waiting_since = CASE WHEN ${input.queued ? 1 : 0} = 1 AND start_queued = 0
+              THEN ${input.now} ELSE waiting_since END
           WHERE issue_key = ${input.issueKey}
         `;
         return true;

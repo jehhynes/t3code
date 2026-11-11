@@ -18,14 +18,23 @@ export interface WaitingIssue {
   readonly playbooks: ReadonlyArray<string> | undefined;
   /**
    * How an open blocker holds its start (jehhynes/t3code#65): it `starts` by itself once none is
-   * left, or `waits` for Start, which queues it; null when nothing holds it.
+   * left, or `waits` for Start, which queues it. With no blocker, `slot`: it starts by itself once
+   * a slot is free, which it waits for while every slot is in use (jehhynes/t3code#76). Null when
+   * nothing holds it.
    */
-  readonly hold: "starts" | "waits" | null;
+  readonly hold: "starts" | "waits" | "slot" | null;
 }
 
-function holdOf(board: IssueBoard, entry: IssueBoardEntry): WaitingIssue["hold"] {
-  if (!heldByBlockers(board, entry)) return null;
-  return entry.startsBySelf === true ? "starts" : "waits";
+function holdOf(
+  board: IssueBoard,
+  entry: IssueBoardEntry,
+  playbookErrors: ReadonlyArray<string>,
+): WaitingIssue["hold"] {
+  if (heldByBlockers(board, entry)) return entry.startsBySelf === true ? "starts" : "waits";
+  if (entry.projectId === null) return null;
+  // During a mistake nothing starts by itself, so an untried entry keeps its Start.
+  if (entry.startQueued === true) return "slot";
+  return entry.startsBySelf === true && playbookErrors.length === 0 ? "slot" : null;
 }
 
 function joinKeys(keys: ReadonlyArray<string>): string {
@@ -33,7 +42,11 @@ function joinKeys(keys: ReadonlyArray<string>): string {
 }
 
 /** What a held row says it waits for, such as "Starts when #12 closes". */
-export function holdText(hold: "starts" | "waits", blockers: IssueBoardEntry["blockers"]): string {
+export function holdText(
+  hold: "starts" | "waits" | "slot",
+  blockers: IssueBoardEntry["blockers"],
+): string {
+  if (hold === "slot") return "Starts when a thread finishes";
   const keys = joinKeys(blockers.map((blocker) => blocker.displayKey));
   if (hold === "waits") return `Waits for ${keys}`;
   return `Starts when ${keys} ${blockers.length === 1 ? "closes" : "close"}`;
@@ -68,7 +81,7 @@ export function waitingIssues(
           environmentId,
           entry: { ...entry, playbook },
           playbooks: answer.playbooks,
-          hold: holdOf(board, entry),
+          hold: holdOf(board, entry, answer.playbookErrors),
         };
         const key = waitingIssueKey(issue);
         if (!waiting.has(key)) waiting.set(key, issue);

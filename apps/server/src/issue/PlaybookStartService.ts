@@ -47,6 +47,7 @@ import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as IssueService from "./IssueService.ts";
+import * as IssueThreadSlots from "./IssueThreadSlots.ts";
 import { issueWorktreeConfig, makeIssueWorkspace } from "./issueWorktree.ts";
 import * as IssueWorktrees from "./IssueWorktrees.ts";
 import { entryWaitingIn, heldIn } from "./playbookEntries.ts";
@@ -57,10 +58,10 @@ export class PlaybookStartService extends Context.Service<
   PlaybookStartService,
   {
     /**
-     * Sends the playbook's prompt to the issue's open thread, or launches the playbook's thread in
-     * the issue's project and links it to the issue. Only an issue waiting with that playbook. An
-     * issue its board holds for an open blocker is queued instead, and starts by itself once none
-     * is left; `cancelQueued` takes that back (jehhynes/t3code#65).
+     * Sends the playbook's prompt to the issue's open thread, or launches its thread, linked to
+     * the issue waiting with that playbook. An issue held by an open blocker (jehhynes/t3code#65)
+     * or with no free slot (#76) is queued instead; `cancelQueued` takes that back. A start by
+     * itself with no free slot answers no thread and spends no try.
      */
     readonly start: (
       input: IssuePlaybookStartInput,
@@ -86,6 +87,8 @@ export class PlaybookStartService extends Context.Service<
     /** Takes each committed domain event; a draft's start runs on a worker. */
     readonly handleEvent: (event: OrchestrationV2DomainEvent) => Effect.Effect<void>;
     readonly drain: Effect.Effect<void>;
+    /** Waits until a slot may have freed while a start waited for one (jehhynes/t3code#76). */
+    readonly awaitFreedSlot: Effect.Effect<void>;
   }
 >()("t3/issue/PlaybookStartService") {}
 
@@ -105,6 +108,7 @@ export function isComposerMessage(message: OrchestrationV2ConversationMessage): 
 const isAboveCeilingError = Schema.is(OrchestratorRuntimeModeAboveCeilingError);
 const isThreadNotFound = Schema.is(ProjectionStore.ProjectionStoreThreadNotFoundError);
 const isThreadLaunchError = Schema.is(ThreadLaunchService.ThreadLaunchError);
+const isSlotsError = Schema.is(IssueThreadSlots.IssueThreadSlotsError);
 
 /** Whether a failed start leaves its issue started, or waiting again with the failure's cause. */
 type Decision = "keep" | "release";
@@ -152,6 +156,7 @@ const make = Effect.gen(function* () {
   const playbooksPath = path.join(path.dirname(config.settingsPath), PLAYBOOKS_FILE);
   const issueWorkspace = yield* makeIssueWorkspace;
   const issueWorktrees = yield* IssueWorktrees.IssueWorktrees;
+  const slots = yield* IssueThreadSlots.make;
 
   const fail = (detail: string, cause?: unknown) =>
     new IssueOperationError({
@@ -489,7 +494,12 @@ const make = Effect.gen(function* () {
     entry: IssueBoardEntry,
   ) {
     const cancelled = yield* entries
-      .setQueued({ issueKey: IssueThreadLinks.issueThreadKey(entry), playbook, queued: false })
+      .setQueued({
+        issueKey: IssueThreadLinks.issueThreadKey(entry),
+        playbook,
+        queued: false,
+        now: DateTime.formatIso(yield* DateTime.now),
+      })
       .pipe(
         Effect.mapError((cause) => fail("Which issues wait for Start could not be saved.", cause)),
       );
@@ -516,109 +526,130 @@ const make = Effect.gen(function* () {
         return yield* fail(`No T3 Code project is for ${requested.scope}.`);
       }
       if (!auto) yield* latestRead;
-
-      // Claiming the entry makes a second Start of it, from any client, refuse. Every step that
-      // can fail comes after it, so a failed start by the server itself counts as its one try.
-      const id = yield* random.uuidV4();
-      const decided = yield* Ref.make<Decision | null>(null);
-      const claim = {
-        issueKey: IssueThreadLinks.issueThreadKey(requested),
-        startedBy: `issue-playbook:${id}`,
-      };
-      const saveError = (cause: unknown) =>
-        fail("Which issues wait for Start could not be saved.", cause);
-      const claimEntry = entries
-        .claim({
-          ...claim,
-          playbook: playbook.name,
-          auto,
-          selfStarting: playbook.autoStart === true,
-        })
-        .pipe(Effect.mapError(saveError));
-      // Decided against the latest read under its lock, so no read publishes in between. By
-      // itself, only while that read still lists the issue waiting, unheld: a newer read may have
-      // found a mistake, an unreadable account, an open blocker, or the board off or failed.
-      type Claimed = IssueBoardEntry | "queued" | null;
-      const claimed = issues.withLatestBoard(
-        (latest): Effect.Effect<Claimed, IssueOperationError> => {
-          const held = heldIn(latest, claim.issueKey, playbook.name).length > 0;
-          if (auto) {
-            const current = entryWaitingIn(latest, claim.issueKey, playbook.name);
-            return current === undefined || current.projectId === null || held
-              ? Effect.succeed(null)
-              : claimEntry.pipe(Effect.map((ok) => (ok ? current : null)));
-          }
-          // A held issue starts by itself once its blockers close.
-          if (held) {
-            return entries
-              .setQueued({ issueKey: claim.issueKey, playbook: playbook.name, queued: true })
-              .pipe(
-                Effect.mapError(saveError),
-                Effect.map((ok) => (ok ? ("queued" as const) : null)),
-              );
-          }
-          return claimEntry.pipe(Effect.map((ok) => (ok ? requested : null)));
-        },
-      );
-      // Acquired uninterruptibly, so an interrupted Start cannot keep a claim it never used.
-      return yield* Effect.acquireUseRelease(
-        claimed,
-        (entry): Effect.Effect<IssuePlaybookStartResult, IssueOperationError> =>
-          entry === "queued"
-            ? Effect.succeed({ threadId: null })
-            : entry !== null && entry.projectId !== null
-              ? projects.getById(entry.projectId).pipe(
-                  Effect.mapError((cause) => fail("The project could not be read.", cause)),
-                  Effect.flatMap(
-                    Option.match({
-                      onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
-                      onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
-                    }),
-                  ),
-                )
-              : Effect.fail(
-                  fail(
-                    `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
-                  ),
-                ),
-        // A Start that fails or is interrupted before its thread holds the prompt leaves the issue
-        // waiting, with the failure's cause. Either way every client is shown the entry as it now
-        // is before Start answers.
-        (entry, exit) =>
-          entry === null
-            ? Effect.void
-            : (Exit.isFailure(exit) && entry !== "queued"
-                ? Effect.gen(function* () {
-                    // Set by a failure that settled; an interruption or a defect settles here.
-                    const decision =
-                      (yield* Ref.get(decided)) ??
-                      (entry.projectId === null
-                        ? "release"
-                        : (yield* settle(null, { id, entry, projectId: entry.projectId }))
-                            .decision);
-                    if (decision === "keep") return;
-                    yield* entries
-                      .release({
-                        ...claim,
-                        failure: Cause.findErrorOption(exit.cause).pipe(
-                          Option.map((error) => error.detail),
-                          Option.getOrNull,
-                        ),
-                      })
-                      .pipe(
-                        Effect.catchCause((cause) =>
-                          Effect.logError("A failed Start left its issue started", {
-                            ...claim,
-                            cause,
-                          }),
-                        ),
-                      );
-                  })
-                : Effect.void
-              ).pipe(Effect.andThen(issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true })))),
-      );
+      // Fork-only (jehhynes/t3code#76): every start but a draft's waits for a free slot.
+      return yield* slots
+        .whenFree((free) => startWithSlot(playbook, requested, auto, free))
+        .pipe(
+          Effect.mapError((error) =>
+            isSlotsError(error)
+              ? fail("Which issue threads are running could not be read.", error.cause)
+              : error,
+          ),
+        );
     },
   );
+
+  const startWithSlot = Effect.fn("PlaybookStartService.startWithSlot")(function* (
+    playbook: IssuePlaybook,
+    requested: IssueBoardEntry,
+    auto: boolean,
+    free: boolean,
+  ) {
+    // Claiming the entry makes a second Start of it, from any client, refuse. Every step that
+    // can fail comes after it, so a failed start by the server itself counts as its one try.
+    const id = yield* random.uuidV4();
+    const decided = yield* Ref.make<Decision | null>(null);
+    const claim = {
+      issueKey: IssueThreadLinks.issueThreadKey(requested),
+      startedBy: `issue-playbook:${id}`,
+    };
+    const saveError = (cause: unknown) =>
+      fail("Which issues wait for Start could not be saved.", cause);
+    const claimEntry = entries
+      .claim({
+        ...claim,
+        playbook: playbook.name,
+        auto,
+        selfStarting: playbook.autoStart === true,
+      })
+      .pipe(Effect.mapError(saveError));
+    // Decided against the latest read under its lock, so no read publishes in between. By
+    // itself, only while that read still lists the issue waiting, unheld: a newer read may have
+    // found a mistake, an unreadable account, an open blocker, or the board off or failed.
+    // "waits": a start by itself found no free slot, and nothing changed (jehhynes/t3code#76).
+    type Claimed = IssueBoardEntry | "queued" | "waits" | null;
+    const now = DateTime.formatIso(yield* DateTime.now);
+    const claimed = issues.withLatestBoard(
+      (latest): Effect.Effect<Claimed, IssueOperationError> => {
+        const held = heldIn(latest, claim.issueKey, playbook.name).length > 0;
+        if (auto) {
+          const current = entryWaitingIn(latest, claim.issueKey, playbook.name);
+          if (current === undefined || current.projectId === null || held) {
+            return Effect.succeed(null);
+          }
+          // No try is spent: it starts once a slot frees.
+          if (!free) return Effect.succeed("waits");
+          return claimEntry.pipe(Effect.map((ok) => (ok ? current : null)));
+        }
+        // A held issue starts by itself once its blockers close, or once a slot frees.
+        if (held || !free) {
+          return entries
+            .setQueued({ issueKey: claim.issueKey, playbook: playbook.name, queued: true, now })
+            .pipe(
+              Effect.mapError(saveError),
+              Effect.map((ok) => (ok ? ("queued" as const) : null)),
+            );
+        }
+        return claimEntry.pipe(Effect.map((ok) => (ok ? requested : null)));
+      },
+    );
+    // Acquired uninterruptibly, so an interrupted Start cannot keep a claim it never used.
+    return yield* Effect.acquireUseRelease(
+      claimed,
+      (entry): Effect.Effect<IssuePlaybookStartResult, IssueOperationError> =>
+        entry === "queued" || entry === "waits"
+          ? Effect.succeed({ threadId: null })
+          : entry !== null && entry.projectId !== null
+            ? projects.getById(entry.projectId).pipe(
+                Effect.mapError((cause) => fail("The project could not be read.", cause)),
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(fail("The issue's project no longer exists.")),
+                    onSome: (project) => sendOrLaunch(playbook, entry, project, id, decided),
+                  }),
+                ),
+              )
+            : Effect.fail(
+                fail(
+                  `This issue is not waiting for playbook ${playbook.name}; refresh the Issues page.`,
+                ),
+              ),
+      // A Start that fails or is interrupted before its thread holds the prompt leaves the issue
+      // waiting, with the failure's cause. Either way every client is shown the entry as it now
+      // is before Start answers.
+      (entry, exit) =>
+        entry === null || entry === "waits"
+          ? Effect.void
+          : (Exit.isFailure(exit) && entry !== "queued"
+              ? Effect.gen(function* () {
+                  // Set by a failure that settled; an interruption or a defect settles here.
+                  const decision =
+                    (yield* Ref.get(decided)) ??
+                    (entry.projectId === null
+                      ? "release"
+                      : (yield* settle(null, { id, entry, projectId: entry.projectId })).decision);
+                  if (decision === "keep") return;
+                  yield* entries
+                    .release({
+                      ...claim,
+                      failure: Cause.findErrorOption(exit.cause).pipe(
+                        Option.map((error) => error.detail),
+                        Option.getOrNull,
+                      ),
+                    })
+                    .pipe(
+                      Effect.catchCause((cause) =>
+                        Effect.logError("A failed Start left its issue started", {
+                          ...claim,
+                          cause,
+                        }),
+                      ),
+                    );
+                })
+              : Effect.void
+            ).pipe(Effect.andThen(issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true })))),
+    );
+  });
 
   const prepareDraft: PlaybookStartService["Service"]["prepareDraft"] = Effect.fn(
     "PlaybookStartService.prepareDraft",
@@ -751,6 +782,7 @@ const make = Effect.gen(function* () {
   // Untraced: it sees every domain event, and a match is traced by `startSent`.
   const handleEvent: PlaybookStartService["Service"]["handleEvent"] = Effect.fnUntraced(
     function* (event) {
+      yield* slots.observe(event); // Fork-only (jehhynes/t3code#76)
       if (event.type !== "message.updated" || !isComposerMessage(event.payload)) return;
       const pending = startsOnSend.get(event.threadId);
       if (pending === undefined || pending.earlier.has(event.payload.id)) return;
@@ -766,6 +798,7 @@ const make = Effect.gen(function* () {
     startOnSend,
     handleEvent,
     drain: worker.drain,
+    awaitFreedSlot: slots.awaitFreed,
   });
 });
 

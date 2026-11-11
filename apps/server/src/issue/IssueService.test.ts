@@ -1019,6 +1019,7 @@ describe("IssueService", () => {
         issueKey: "github github.com acme/web 1",
         playbook: "develop",
         queued: true,
+        now: "2026-11-11T12:00:00.000Z", // Fork-only (jehhynes/t3code#76)
       });
       yield* service.refreshWaiting;
       const results = [...(yield* Fiber.join(published))];

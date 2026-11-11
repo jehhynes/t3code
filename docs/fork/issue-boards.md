@@ -33,6 +33,9 @@ change applies at once. A value above zero but under 10 seconds counts as 10 sec
 less as five minutes. Opening the Issues page shows the latest read at once, and reads the boards
 again when that read is more than 30 seconds old; its refresh button reads them again.
 
+At most two issue threads run at once; set `maxRunningIssueThreads`, from 1 to 10, beside
+`githubBoardReadInterval` to change that. See [Run a few at a time](playbooks.md#run-a-few-at-a-time).
+
 A change to `githubBoards` applies at the next read. Remove a board from the list to stop showing
 it.
 

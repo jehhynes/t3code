@@ -70,11 +70,14 @@ export function BoardRowLines({
   entry,
   failure,
   hold,
+  note,
 }: {
   entry: IssueBoardEntry;
   failure?: string | null | undefined;
   /** What a held issue waits for, in place of its blockers (jehhynes/t3code#65). */
   hold?: string | null | undefined;
+  /** What an issue waits for that no blocker explains, such as a free slot (jehhynes/t3code#76). */
+  note?: string | null | undefined;
 }) {
   return (
     <>
@@ -134,6 +137,7 @@ export function BoardRowLines({
                 Blocked by {entry.blockers.map((blocker) => blocker.displayKey).join(", ")}
               </span>
             ) : null}
+            {note ? <span className="truncate text-warning-foreground">{note}</span> : null}
             {entry.labels.length > 0 ? (
               <span className="hidden min-w-0 items-center gap-1 @xl/issue-row-meta:flex">
                 {entry.labels.slice(0, 3).map((label, index) => (

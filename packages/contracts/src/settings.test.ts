@@ -370,6 +370,18 @@ describe("ServerSettings worktree defaults", () => {
   });
 });
 
+// Fork-only (jehhynes/t3code#76)
+describe("ServerSettings.maxRunningIssueThreads", () => {
+  it("takes 1 to 10 issue threads, 2 when left out", () => {
+    expect(decodeServerSettings({}).maxRunningIssueThreads).toBe(2);
+    expect(decodeServerSettings({ maxRunningIssueThreads: 1 }).maxRunningIssueThreads).toBe(1);
+    expect(decodeServerSettings({ maxRunningIssueThreads: 10 }).maxRunningIssueThreads).toBe(10);
+    for (const refused of [0, 11, 2.5]) {
+      expect(() => decodeServerSettings({ maxRunningIssueThreads: refused })).toThrow();
+    }
+  });
+});
+
 describe("ServerSettings.sourceControlWritingStyle", () => {
   it.each([
     { legacy: "", mode: "repo_conventions", customInstructions: "" },

@@ -140,6 +140,54 @@ describe("hold", () => {
     ]);
     expect(rows(undefined).map(([, hold]) => hold)).toEqual([null, null, null]);
   });
+
+  // Fork-only (jehhynes/t3code#76)
+  it("holds an issue that starts by itself, or was queued, until a slot frees, naming a blocker first", () => {
+    const projectId = "web" as IssueBoardEntry["projectId"];
+    const waits = { waitingPlaybook: "develop", projectId };
+    const rows = (playbookErrors: ReadonlyArray<string>) =>
+      waitingIssues([
+        [
+          env,
+          {
+            playbookErrors,
+            boards: [
+              {
+                ...board(1, [
+                  entry("1", { ...waits, startsBySelf: true }),
+                  entry("2", { ...waits, startQueued: true, startsBySelf: true }),
+                  entry("3", { ...waits }),
+                  entry("4", { ...waits, startsBySelf: true, projectId: null }),
+                  entry("5", {
+                    ...waits,
+                    startQueued: true,
+                    startsBySelf: true,
+                    blockers: [blocker("12")],
+                  }),
+                ]),
+                waitForBlockers: true,
+              },
+            ],
+          },
+        ],
+      ]).map((issue) => [issue.entry.key, issue.hold]);
+
+    expect(rows([])).toEqual([
+      ["5", "starts"],
+      ["4", null],
+      ["3", null],
+      ["2", "slot"],
+      ["1", "slot"],
+    ]);
+    // During a mistake nothing starts by itself: an untried issue keeps its Start.
+    expect(rows(["Playbook 2: a prompt is required"])).toEqual([
+      ["5", "starts"],
+      ["4", null],
+      ["3", null],
+      ["2", "slot"],
+      ["1", null],
+    ]);
+  });
 });
 
 describe("otherPlaybooks", () => {

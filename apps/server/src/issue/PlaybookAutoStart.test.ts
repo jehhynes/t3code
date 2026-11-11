@@ -88,6 +88,7 @@ const row = (
   startFailure: null,
   leftAt: null,
   startQueued: false,
+  waitingSince: null,
   ...overrides,
 });
 
@@ -159,6 +160,32 @@ describe("autoStartEntries", () => {
     expect(keys(waiting([blocker]))).toEqual(["1", "2", "3"]);
     expect(keys(waiting([blocker], false))).toEqual(["1", "2", "3"]);
   });
+
+  it("orders the waiting issues by when they began to wait, a record without a time first", () => {
+    const rows = new Map(
+      [
+        row("1", false, { waitingSince: "2026-11-11T12:00:00.000Z" }),
+        row("2", false, {
+          playbook: "develop",
+          startQueued: true,
+          waitingSince: "2026-11-11T10:00:00.000Z",
+        }),
+        row("3", false, { waitingSince: "2026-11-11T11:00:00.000Z" }),
+        row("4"),
+        row("5", false, { waitingSince: "2026-11-11T11:00:00.000Z" }),
+      ].map((r) => [r.issueKey, r]),
+    );
+    const listed = [
+      entry("1"),
+      entry("2", { waitingPlaybook: "develop" }),
+      entry("3"),
+      entry("4"),
+      entry("5"),
+    ];
+    expect(
+      autoStartEntries({ result: result(listed), playbooks, rows }).map((s) => s.entry.key),
+    ).toEqual(["4", "2", "3", "5", "1"]);
+  });
 });
 
 interface Harness {
@@ -168,6 +195,8 @@ interface Harness {
   readonly started: Queue.Queue<string>;
   readonly publish: (value: IssueBoardResult) => Effect.Effect<void>;
   readonly setInterval: (interval: Duration.Duration) => Effect.Effect<void>;
+  /** A thread's turn ends: one more slot is free, and the starter is told. */
+  readonly freeSlot: Effect.Effect<void>;
 }
 
 function harness<A, E>(
@@ -176,6 +205,8 @@ function harness<A, E>(
     /** Issues with a record, waiting untried; the listed ones when left out. */
     readonly recorded?: ReadonlyArray<string>;
     readonly start?: (key: string) => Effect.Effect<void>;
+    /** Free slots; a start finds none once they are taken. Unlimited when left out. */
+    readonly slots?: number;
   },
   body: (context: Harness) => Effect.Effect<A, E>,
 ) {
@@ -194,6 +225,8 @@ function harness<A, E>(
     } as ServerSettingsValue);
     const changes = yield* PubSub.unbounded<ServerSettingsValue>();
     const publish = (value: IssueBoardResult) => SubscriptionRef.set(latest, value);
+    const free = yield* Ref.make(input.slots ?? Number.POSITIVE_INFINITY);
+    const freed = yield* Queue.unbounded<void>();
 
     const store = Context.get(
       yield* Layer.build(
@@ -218,6 +251,9 @@ function harness<A, E>(
                 ...current,
                 githubBoardReadInterval: interval,
               })).pipe(Effect.flatMap((next) => PubSub.publish(changes, next))),
+            freeSlot: Ref.update(free, (slots) => slots + 1).pipe(
+              Effect.andThen(Queue.offer(freed, undefined)),
+            ),
           }),
         ),
       ),
@@ -232,6 +268,7 @@ function harness<A, E>(
             boardChanges: SubscriptionRef.changes(latest).pipe(
               Stream.filter((value): value is IssueBoardResult => value !== null),
             ),
+            withLatestBoard: (use) => SubscriptionRef.get(latest).pipe(Effect.flatMap(use)),
           }),
           // Claims as Start does, so an entry it tried is not offered again.
           Layer.mock(PlaybookStartService.PlaybookStartService)({
@@ -240,6 +277,8 @@ function harness<A, E>(
                 if (!("entry" in request)) return yield* Effect.die("no cancel here");
                 const { playbook, entry: startEntry } = request;
                 yield* Queue.offer(attempts, startEntry.key);
+                // No free slot: nothing is claimed, so the try is not spent.
+                if ((yield* Ref.get(free)) <= 0) return { threadId: null };
                 const claimed = yield* store
                   .claim({
                     issueKey: issueKey(startEntry.key),
@@ -256,9 +295,11 @@ function harness<A, E>(
                   });
                 }
                 yield* input.start?.(startEntry.key) ?? Effect.void;
+                yield* Ref.update(free, (slots) => slots - 1);
                 yield* Queue.offer(started, startEntry.key);
                 return { threadId: ThreadId.make(`thread ${startEntry.key}`) };
               }),
+            awaitFreedSlot: Queue.take(freed),
           }),
           Layer.mock(ServerSettings.ServerSettingsService)({
             getSettings: Ref.get(settings),
@@ -313,4 +354,60 @@ describe("PlaybookAutoStart", () => {
           }),
       ),
   );
+
+  // Fork-only (jehhynes/t3code#76)
+  it.effect(
+    "starts as many as there are free slots, then the next oldest each time a slot frees, with no board read",
+    () =>
+      harness(
+        { listed: [entry("1"), entry("2"), entry("3"), entry("4")], slots: 2 },
+        ({ reads, attempts, started, freeSlot }) =>
+          Effect.gen(function* () {
+            yield* Queue.take(reads);
+            expect(yield* Queue.take(started)).toBe("1");
+            expect(yield* Queue.take(started)).toBe("2");
+
+            // #3 found no slot and the pass stopped there, so #4 was not tried before the wake.
+            yield* freeSlot;
+            expect(yield* Queue.take(started)).toBe("3");
+            yield* freeSlot;
+            expect(yield* Queue.take(started)).toBe("4");
+            expect([...(yield* Queue.takeAll(attempts))]).toEqual(["1", "2", "3", "3", "4", "4"]);
+            expect(yield* Queue.size(reads)).toBe(0);
+          }),
+      ),
+  );
+
+  it.effect("starts an issue held by a blocker and by the limit only once both allow it", () => {
+    const blocker = {
+      scope: "acme/web",
+      key: "12",
+      displayKey: "#12",
+      title: "Blocker",
+      url: "https://github.com/acme/web/issues/12",
+    };
+    const waitsForBlockers = (entries: ReadonlyArray<IssueBoardEntry>) => {
+      const read = result(entries);
+      return { ...read, boards: read.boards.map((board) => ({ ...board, waitForBlockers: true })) };
+    };
+    return harness(
+      { listed: [entry("1")], recorded: ["1", "2"], slots: 1 },
+      ({ reads, attempts, started, publish, freeSlot }) =>
+        Effect.gen(function* () {
+          yield* Queue.take(reads);
+          expect(yield* Queue.take(started)).toBe("1");
+          yield* Queue.takeAll(attempts);
+
+          // Held by its blocker, #2 is not tried.
+          yield* publish(waitsForBlockers([entry("2", { blockers: [blocker] })]));
+          // Its blocker closes while no slot is free: it is tried, finds none, and waits.
+          yield* publish(waitsForBlockers([entry("2")]));
+          expect(yield* Queue.take(attempts)).toBe("2");
+          // A slot frees: it starts, and was tried only by that read and this wake.
+          yield* freeSlot;
+          expect(yield* Queue.take(started)).toBe("2");
+          expect([...(yield* Queue.takeAll(attempts))]).toEqual(["2"]);
+        }),
+    );
+  });
 });

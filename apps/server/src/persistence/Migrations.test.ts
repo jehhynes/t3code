@@ -183,16 +183,26 @@ describe("runMigrations", () => {
       `;
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN start_failure`;
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN start_queued`; // Fork-only (jehhynes/t3code#65)
+      yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN waiting_since`; // Fork-only (jehhynes/t3code#76)
       yield* runMigrations();
       yield* runMigrations();
       assert.deepStrictEqual(yield* history, migrationManifest);
       assert.deepStrictEqual(
         yield* sql`
           SELECT playbook, auto_tried AS "autoTried", start_failure AS "startFailure",
-            start_queued AS "startQueued"
+            start_queued AS "startQueued", waiting_since AS "waitingSince"
           FROM issue_playbook_entries
         `,
-        [{ playbook: "develop", autoTried: 1, startFailure: null, startQueued: 0 }], // Fork-only (jehhynes/t3code#65)
+        // Fork-only (jehhynes/t3code#65, #76)
+        [
+          {
+            playbook: "develop",
+            autoTried: 1,
+            startFailure: null,
+            startQueued: 0,
+            waitingSince: null,
+          },
+        ],
       );
     }).pipe(Effect.provide(NodeSqliteClient.layer({ filename: ":memory:" }))),
   );

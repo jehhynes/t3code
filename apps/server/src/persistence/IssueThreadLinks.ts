@@ -36,6 +36,14 @@ export class IssueThreadLinksRepository extends Context.Service<
      */
     readonly listOpen: Effect.Effect<ReadonlyMap<string, OpenIssueThread>, PersistenceSqlError>;
     /**
+     * Every thread not settled, archived or deleted, with the `issueThreadKey` of each issue it
+     * links, one pair per link (jehhynes/t3code#76).
+     */
+    readonly openLinks: Effect.Effect<
+      ReadonlyArray<{ readonly threadId: ThreadId; readonly issueKey: string }>,
+      PersistenceSqlError
+    >;
+    /**
      * The worktree of the issue's thread in the project updated last among those that have one,
      * settled and archived included, deleted not (jehhynes/t3code#31).
      */
@@ -48,30 +56,30 @@ export class IssueThreadLinksRepository extends Context.Service<
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // The shell snapshot's `location: "active"` and `unsettledOnly` predicates.
+  const openLinkRows = sql<{
+    threadId: ThreadId;
+    projectId: ProjectId;
+    tracker: string;
+    host: string;
+    scope: string;
+    key: string;
+  }>`
+    SELECT t.thread_id AS "threadId", t.project_id AS "projectId",
+      json_extract(link.value, '$.tracker') AS tracker,
+      json_extract(link.value, '$.host') AS host,
+      json_extract(link.value, '$.scope') AS scope,
+      json_extract(link.value, '$.key') AS key
+    FROM orchestration_v2_projection_threads AS t
+    JOIN json_each(t.payload_json, '$.issues') AS link
+    WHERE t.deleted_at IS NULL
+      AND json_extract(t.payload_json, '$.archivedAt') IS NULL
+      AND json_extract(t.payload_json, '$.settledAt') IS NULL
+      AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'
+    ORDER BY t.updated_at, t.thread_id
+  `.pipe(NodeSqliteClient.readOnly);
   return IssueThreadLinksRepository.of({
-    // The shell snapshot's `location: "active"` and `unsettledOnly` predicates.
-    listOpen: sql<{
-      threadId: ThreadId;
-      projectId: ProjectId;
-      tracker: string;
-      host: string;
-      scope: string;
-      key: string;
-    }>`
-      SELECT t.thread_id AS "threadId", t.project_id AS "projectId",
-        json_extract(link.value, '$.tracker') AS tracker,
-        json_extract(link.value, '$.host') AS host,
-        json_extract(link.value, '$.scope') AS scope,
-        json_extract(link.value, '$.key') AS key
-      FROM orchestration_v2_projection_threads AS t
-      JOIN json_each(t.payload_json, '$.issues') AS link
-      WHERE t.deleted_at IS NULL
-        AND json_extract(t.payload_json, '$.archivedAt') IS NULL
-        AND json_extract(t.payload_json, '$.settledAt') IS NULL
-        AND json_extract(t.payload_json, '$.settledOverride') IS NOT 'settled'
-      ORDER BY t.updated_at, t.thread_id
-    `.pipe(
-      NodeSqliteClient.readOnly,
+    listOpen: openLinkRows.pipe(
       // Ordered, so the thread updated last stays.
       Effect.map(
         (rows) =>
@@ -86,6 +94,13 @@ const make = Effect.gen(function* () {
         (cause) => new PersistenceSqlError({ operation: "listOpenIssueThreads", cause }),
       ),
       Effect.withSpan("IssueThreadLinksRepository.listOpen"),
+    ),
+    openLinks: openLinkRows.pipe(
+      Effect.map((rows) =>
+        rows.map((row) => ({ threadId: row.threadId, issueKey: issueThreadKey(row) })),
+      ),
+      Effect.mapError((cause) => new PersistenceSqlError({ operation: "openIssueLinks", cause })),
+      Effect.withSpan("IssueThreadLinksRepository.openLinks"),
     ),
     latestWorktree: Effect.fn("IssueThreadLinksRepository.latestWorktree")(
       function* (issueKey, projectId) {

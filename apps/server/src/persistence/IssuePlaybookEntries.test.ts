@@ -12,6 +12,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     yield* runMigrations();
     const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
     const issueKey = "github github.com acme/web 1";
+    const entered = "2026-11-11T10:00:00.000Z";
     const enter = (playbook: string | null, leftAt: string | null = null) =>
       store.reconcile(() => [
         {
@@ -23,11 +24,12 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           startFailure: null,
           leftAt,
           startQueued: false,
+          waitingSince: entered,
         },
       ]);
 
-    const entered = yield* enter("develop");
-    assert.deepStrictEqual(entered.get(issueKey), {
+    const rows = yield* enter("develop");
+    assert.deepStrictEqual(rows.get(issueKey), {
       issueKey,
       board: "acme/1",
       playbook: "develop",
@@ -36,6 +38,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startFailure: null,
       leftAt: null,
       startQueued: false,
+      waitingSince: entered,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -80,6 +83,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         startFailure: null,
         leftAt: null,
         startQueued: false,
+        waitingSince: null,
       },
     ]);
     assert.isTrue(
@@ -114,6 +118,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startFailure: null,
       leftAt: null,
       startQueued: false,
+      waitingSince: entered,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);
@@ -126,14 +131,25 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     yield* enter("develop");
     const byItself = { ...auto, selfStarting: false, startedBy: "issue-playbook:i" };
     assert.isFalse(yield* store.claim(byItself));
-    const queue = { issueKey, playbook: "Develop", queued: true };
+    const queuedAt = "2026-11-11T11:00:00.000Z";
+    const queue = { issueKey, playbook: "Develop", queued: true, now: queuedAt };
     assert.isFalse(yield* store.setQueued({ ...queue, playbook: "ship" }));
     assert.isTrue(yield* store.setQueued(queue));
-    assert.isTrue((yield* store.list).get(issueKey)?.startQueued);
-    // Taken back before the claim, it does not start.
-    assert.isTrue(yield* store.setQueued({ ...queue, queued: false }));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      startQueued: true,
+      waitingSince: queuedAt,
+    });
+    // A Start queued again, as from another client, keeps its place (jehhynes/t3code#76).
+    assert.isTrue(yield* store.setQueued({ ...queue, now: "2026-11-11T11:30:00.000Z" }));
+    assert.strictEqual((yield* store.list).get(issueKey)?.waitingSince, queuedAt);
+    // Taken back before the claim, it does not start, and keeps when it began to wait.
+    assert.isTrue(yield* store.setQueued({ ...queue, queued: false, now: "unused" }));
+    assert.strictEqual((yield* store.list).get(issueKey)?.waitingSince, queuedAt);
     assert.isFalse(yield* store.claim(byItself));
-    assert.isTrue(yield* store.setQueued(queue));
+    // Queued again after that, it waits from then.
+    const requeuedAt = "2026-11-11T12:00:00.000Z";
+    assert.isTrue(yield* store.setQueued({ ...queue, now: requeuedAt }));
+    assert.strictEqual((yield* store.list).get(issueKey)?.waitingSince, requeuedAt);
     assert.isTrue(yield* store.claim(byItself));
     assert.isFalse(yield* store.setQueued({ ...queue, queued: false }));
     yield* store.release({ ...byItself, failure: "The launch failed." });

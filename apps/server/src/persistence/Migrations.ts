@@ -89,6 +89,7 @@ import IssuePlaybookEntriesAutoTriedSchema from "./Migrations/unnumbered/IssuePl
 import IssuePlaybookEntriesStartFailureSchema from "./Migrations/unnumbered/IssuePlaybookEntriesStartFailure.ts";
 import IssuePlaybookEntriesLeftAtSchema from "./Migrations/unnumbered/IssuePlaybookEntriesLeftAt.ts"; // Fork-only (jehhynes/t3code#57)
 import IssuePlaybookEntriesStartQueuedSchema from "./Migrations/unnumbered/IssuePlaybookEntriesStartQueued.ts"; // Fork-only (jehhynes/t3code#65)
+import IssuePlaybookEntriesWaitingSinceSchema from "./Migrations/unnumbered/IssuePlaybookEntriesWaitingSince.ts"; // Fork-only (jehhynes/t3code#76)
 import IssueTrackerBindingsSchema from "./Migrations/unnumbered/IssueTrackerBindings.ts";
 
 const migrationEntries = [
@@ -186,6 +187,7 @@ const unnumberedSchemaSteps = [
   IssuePlaybookEntriesStartFailureSchema,
   IssuePlaybookEntriesLeftAtSchema,
   IssuePlaybookEntriesStartQueuedSchema, // Fork-only (jehhynes/t3code#65)
+  IssuePlaybookEntriesWaitingSinceSchema, // Fork-only (jehhynes/t3code#76)
 ];
 
 export const migrationManifest = migrationEntries.map(([id, name]) => [id, name] as const);

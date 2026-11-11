@@ -121,7 +121,7 @@ export function heldIn(
 export function reconcilePlaybookEntries(input: {
   readonly rows: ReadonlyMap<string, PlaybookEntryRow>;
   readonly boards: ReadonlyArray<IssueBoard>;
-  /** The read's time, as an ISO string, recorded on each issue that leaves. */
+  /** The read's time, as an ISO string, recorded on each issue that leaves and each new entry. */
   readonly now: string;
 }): ReadonlyArray<PlaybookEntryRow> {
   const deciding = new Set(
@@ -158,6 +158,7 @@ export function reconcilePlaybookEntries(input: {
         startFailure: null,
         leftAt: null,
         startQueued: false,
+        waitingSince: input.now,
       });
     } else if (!deciding.has(row.board)) {
       continue;
@@ -171,6 +172,7 @@ export function reconcilePlaybookEntries(input: {
         startFailure: null,
         leftAt: entry.playbook === null ? input.now : row.leftAt,
         startQueued: false,
+        waitingSince: input.now,
       });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
@@ -186,6 +188,7 @@ export function reconcilePlaybookEntries(input: {
         startFailure: null,
         leftAt: input.now,
         startQueued: false,
+        waitingSince: input.now,
       });
     }
   }

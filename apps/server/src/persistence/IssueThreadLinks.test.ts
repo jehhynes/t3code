@@ -11,7 +11,7 @@ import * as SqlitePersistence from "./Sqlite.ts";
 const encodePayload = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
 it.effect(
-  "answers the issues linked to a thread that is not settled, archived or deleted, with the one updated last",
+  "answers the issues linked to a thread that is not settled, archived or deleted, with the one updated last, and every such thread's links",
   () =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
@@ -72,6 +72,14 @@ it.effect(
         ["github github.com acme/web open", { threadId: "open", projectId: "project-1" }],
         ["github github.com acme/web side-chat", { threadId: "side-chat", projectId: "project-1" }],
         ["github github.com acme/web unsettled", { threadId: "unsettled", projectId: "project-1" }],
+      ]);
+      // Every open thread, also two of one issue (jehhynes/t3code#76).
+      const links = yield* (yield* IssueThreadLinks.IssueThreadLinksRepository).openLinks;
+      expect(links.toSorted((a, b) => a.threadId.localeCompare(b.threadId))).toEqual([
+        { threadId: "open", issueKey: "github github.com acme/web open" },
+        { threadId: "open-older", issueKey: "github github.com acme/web open" },
+        { threadId: "side-chat", issueKey: "github github.com acme/web side-chat" },
+        { threadId: "unsettled", issueKey: "github github.com acme/web unsettled" },
       ]);
     }).pipe(
       Effect.provide(

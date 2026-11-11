@@ -159,6 +159,12 @@ interface Options {
   /** The checkout's repository and, for a fork checkout, its `origin`; `acme/web` when left out. */
   readonly identity?: { readonly canonicalKey: string; readonly origin?: string };
   readonly checkBase?: ThreadLaunchService.ThreadLaunchService["Service"]["checkWorktreeBase"];
+  /** Other threads of board issues with a turn running; none when left out (jehhynes/t3code#76). */
+  readonly running?: number;
+  /** `maxRunningIssueThreads`; the default when left out. */
+  readonly limit?: number;
+  /** Other issues the default latest read lists waiting with `develop`, each with its record. */
+  readonly others?: ReadonlyArray<IssueBoardEntry>;
 }
 
 const issueKey = "github github.com acme/web 6";
@@ -223,6 +229,7 @@ function harness<A, E>(
             ...(held ? { blockers: [blocker] } : {}),
             waitingPlaybook: input.waitingWith === undefined ? "develop" : input.waitingWith,
           },
+          ...(input.others ?? []).map((other) => ({ ...other, waitingPlaybook: "develop" })),
         ],
       },
     ],
@@ -263,7 +270,19 @@ function harness<A, E>(
           startFailure: input.startFailure ?? null,
           leftAt: null,
           startQueued: input.startQueued === true,
+          waitingSince: null,
         },
+        ...(input.others ?? []).map((other) => ({
+          issueKey: IssueThreadLinks.issueThreadKey(other),
+          board: "acme/1",
+          playbook: "develop",
+          startedBy: null,
+          autoTried: false,
+          startFailure: null,
+          leftAt: null,
+          startQueued: false,
+          waitingSince: null,
+        })),
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
       return yield* body({
@@ -308,6 +327,7 @@ function harness<A, E>(
                   ServerSettings.ServerSettingsService.layerTest({
                     issueWorktrees:
                       input.worktrees === undefined ? {} : { "Acme/Web": input.worktrees },
+                    ...(input.limit === undefined ? {} : { maxRunningIssueThreads: input.limit }),
                     defaultModelSelection: { instanceId: "claudeAgent", model: "claude-opus-5-5" },
                     defaultRuntimeMode: "full-access",
                     // The project's own defaults win over the environment's.
@@ -399,6 +419,22 @@ function harness<A, E>(
                   }),
                 getThreadShell: (id) =>
                   Effect.succeed({ id, title: "Open thread" } as OrchestrationV2ThreadShell),
+                // Each thread asked about has a turn running, as a started issue's thread does.
+                getShellSnapshot: (options) =>
+                  Effect.succeed({
+                    schemaVersion: 1,
+                    snapshotSequence: 0,
+                    threads: (options?.threadIds ?? []).map(
+                      (id) =>
+                        ({
+                          id,
+                          status: "running",
+                          activityRunStatus: "running",
+                          pendingRuntimeRequest: null,
+                        }) as OrchestrationV2ThreadShell,
+                    ),
+                    archivedThreads: [],
+                  }),
                 getThreadRecords: (readId, _fields, filter) =>
                   input.threadRead !== undefined && filter?.messageIds === undefined
                     ? Effect.fail(
@@ -466,6 +502,13 @@ function harness<A, E>(
                   Effect.succeed(
                     key === issueKey && id === projectId ? (input.issueWorktree ?? null) : null,
                   ),
+                openLinks: Effect.sync(() => [
+                  ...Array.from({ length: input.running ?? 0 }, (_, index) => ({
+                    threadId: ThreadId.make(`running-${index}`),
+                    issueKey,
+                  })),
+                  ...linkedThreads.map((linkedId) => ({ threadId: linkedId, issueKey })),
+                ]),
                 listOpen: Effect.sync(
                   () =>
                     new Map([
@@ -1433,6 +1476,143 @@ describe("PlaybookStartService.start on a board that waits for blockers", () => 
   );
 });
 
+// Fork-only (jehhynes/t3code#76)
+describe("PlaybookStartService.start with every slot in use", () => {
+  it.effect.each([
+    { name: "Start", input: {} },
+    { name: "Retry", input: { startFailure: "The launch failed." } },
+    { name: "Start on an issue with an open thread", input: { openIssueKeys: [issueKey] } },
+    { name: "Start on an issue held by a blocker as well", input: { held: true } },
+  ])("$name queues the issue from now and starts nothing", ({ input }) =>
+    Effect.gen(function* () {
+      const { result, launched, sent, linked, stored, refreshed } = yield* start({
+        ...input,
+        playbook: "develop",
+        running: 2,
+      });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: null } });
+      expect(launched).toEqual([]);
+      expect(sent).toEqual([]);
+      expect(linked).toEqual([]);
+      expect(stored).toMatchObject({
+        startedBy: null,
+        startQueued: true,
+        autoTried: false,
+        startFailure: input.startFailure ?? null,
+        waitingSince: "1970-01-01T00:00:00.000Z",
+      });
+      expect(refreshed()).toBe(1);
+    }),
+  );
+
+  it.effect.each([
+    {
+      name: "an untried entry of a self-starting playbook",
+      input: { playbook: "deploy", waitingWith: "deploy" },
+    },
+    { name: "a queued entry", input: { playbook: "develop", startQueued: true } },
+  ])("does not start $name by itself, spend its try or publish the boards again", ({ input }) =>
+    Effect.gen(function* () {
+      const { result, launched, stored, refreshed } = yield* start({
+        ...input,
+        auto: true,
+        running: 2,
+      });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId: null } });
+      expect(launched).toEqual([]);
+      expect(stored).toMatchObject({
+        startedBy: null,
+        autoTried: false,
+        startQueued: input.startQueued === true,
+      });
+      expect(refreshed()).toBe(0);
+    }),
+  );
+
+  it.effect("starts while a slot is free", () =>
+    Effect.gen(function* () {
+      const { result, launched } = yield* start({ playbook: "develop", running: 2, limit: 3 });
+
+      expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
+      expect(launched).toHaveLength(1);
+    }),
+  );
+
+  it.effect(
+    "gives the last free slot to one of two Starts, while the other's launch is in flight",
+    () => {
+      const second: IssueBoardEntry = {
+        ...entry,
+        key: "7",
+        displayKey: "#7",
+        title: "Second issue",
+        url: "https://github.com/acme/web/issues/7",
+      };
+      return Effect.gen(function* () {
+        const launching = yield* Deferred.make<void>();
+        const gate = yield* Deferred.make<void>();
+        return yield* harness(
+          {
+            limit: 1,
+            others: [second],
+            // The first launch holds until the second Start was asked for.
+            launch: () =>
+              Deferred.succeed(launching, undefined).pipe(
+                Effect.andThen(Deferred.await(gate)),
+                Effect.as({ threadId, projection: null as never, resumed: false }),
+              ),
+          },
+          ({ service, launched, linked }) =>
+            Effect.gen(function* () {
+              const first = yield* Effect.forkChild(
+                service.start({ playbook: "develop", entry }).pipe(Effect.result),
+              );
+              yield* Deferred.await(launching);
+              const other = yield* Effect.forkChild(
+                service.start({ playbook: "develop", entry: second }).pipe(Effect.result),
+              );
+              yield* Deferred.succeed(gate, undefined);
+
+              expect(yield* Fiber.join(first)).toMatchObject({
+                _tag: "Success",
+                success: { threadId },
+              });
+              expect(yield* Fiber.join(other)).toMatchObject({
+                _tag: "Success",
+                success: { threadId: null },
+              });
+              expect(launched).toHaveLength(1);
+              expect(linked).toHaveLength(1);
+            }),
+        );
+      });
+    },
+  );
+
+  it.effect("wakes the starter when a turn ends while a start waits, with no board read", () =>
+    harness({ waitingWith: "deploy", running: 2, auto: true }, (context) =>
+      Effect.gen(function* () {
+        expect(yield* context.start("deploy")).toMatchObject({
+          _tag: "Success",
+          success: { threadId: null },
+        });
+        const woken = yield* Effect.forkChild(context.service.awaitFreedSlot);
+        yield* context.service.handleEvent({
+          id: EventId.make("event-run-ended"),
+          threadId: ThreadId.make("running-0"),
+          occurredAt: DateTime.makeUnsafe(0),
+          type: "run.updated",
+          payload: { status: "completed" },
+        } as OrchestrationV2DomainEvent);
+        yield* Fiber.join(woken);
+        expect(context.reads()).toBe(0);
+      }),
+    ),
+  );
+});
+
 describe("PlaybookStartService.prepareDraft", () => {
   const prepare = (input: Options & { readonly playbook: string; readonly use?: string }) =>
     harness(input, ({ service }) =>
@@ -1693,6 +1873,15 @@ describe("PlaybookStartService.startOnSend", () => {
       expect(launched).toEqual([]);
       expect(sends).toEqual([]);
       expect(refreshed()).toBe(1);
+    }),
+  );
+
+  it.effect("starts the issue when I send the draft while every slot is in use", () =>
+    Effect.gen(function* () {
+      const { stored, linked } = yield* sent({ running: 2, messages: [composerMessage()] });
+
+      expect(stored).toMatchObject({ startedBy: `issue-playbook-draft:${draftThreadId}` });
+      expect(linked).toHaveLength(1);
     }),
   );
 

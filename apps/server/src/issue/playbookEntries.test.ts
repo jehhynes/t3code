@@ -56,6 +56,7 @@ function board(
   };
 }
 
+const now = "2026-11-11T12:00:00.000Z";
 const row = (
   number: string,
   playbook: string | null,
@@ -65,6 +66,7 @@ const row = (
   startFailure: string | null = null,
   leftAt: string | null = null,
   startQueued = false,
+  waitingSince: string | null = now,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -74,8 +76,8 @@ const row = (
   startFailure,
   leftAt,
   startQueued,
+  waitingSince,
 });
-const now = "2026-11-11T12:00:00.000Z";
 const failed = "The project has no default model.";
 
 describe("reconcilePlaybookEntries", () => {
@@ -110,10 +112,10 @@ describe("reconcilePlaybookEntries", () => {
       writes: [],
     },
     {
-      name: "an issue that moves to another selection waits with it, open thread or not, untried, and has not left",
+      name: "an issue that moves to another selection waits with it from the read, open thread or not, untried, and has not left",
       rows: [
-        row("1", "develop", started, "acme/1", true, null, earlier),
-        row("2", "develop", null, "acme/1", true, failed, null, true),
+        row("1", "develop", started, "acme/1", true, null, earlier, false, earlier),
+        row("2", "develop", null, "acme/1", true, failed, null, true, earlier),
       ],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
       writes: [row("1", "ship", null, "acme/1", false, null, earlier), row("2", "ship", null)],
@@ -157,9 +159,9 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moved to another board follows it, keeping its entry",
-      rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true)],
+      rows: [row("1", "develop", null, "acme/1", true, failed, earlier, true, earlier)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true)],
+      writes: [row("1", "develop", null, "acme/2", true, failed, earlier, true, earlier)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(

@@ -49,7 +49,7 @@ function WaitingRow({
   environmentLabel: string | undefined;
   starting: boolean;
   onStart: () => void;
-  /** Takes back a Start queued until the issue's blockers close. */
+  /** Takes back a Start queued until the issue's blockers close or a slot frees. */
   onCancel: () => void;
   /** Opens a draft with the issue's own playbook, or with `use`. */
   onDraft: (use?: string) => void;
@@ -65,7 +65,8 @@ function WaitingRow({
       <BoardRowLines
         entry={entry}
         failure={failure}
-        hold={hold === null ? null : holdText(hold, entry.blockers)}
+        hold={hold === null || hold === "slot" ? null : holdText(hold, entry.blockers)}
+        note={hold === "slot" ? holdText(hold, entry.blockers) : null}
       />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">
@@ -86,25 +87,41 @@ function WaitingRow({
         ) : null
       ) : (
         <Group aria-label={`Start ${entry.displayKey}`}>
-          <Button
-            variant="outline"
-            size="xs"
-            disabled={starting || !canStart}
-            title={
-              !canStart
-                ? "You cannot start threads here."
-                : hold === "waits"
-                  ? `${action} playbook ${entry.playbook} once its blockers close`
-                  : `${action} playbook ${entry.playbook}`
-            }
-            onClick={onStart}
-          >
-            {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
-            {action}
-          </Button>
-          {issue.playbooks === undefined || hold !== null ? null : (
+          {/* Fork-only (jehhynes/t3code#76): a row waiting for a slot keeps the draft menu. */}
+          {hold === "slot" ? (
+            entry.startQueued === true ? (
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={starting || !canStart}
+                title={canStart ? "Take back the queued start" : "You cannot start threads here."}
+                onClick={onCancel}
+              >
+                <XIcon aria-hidden />
+                Cancel start
+              </Button>
+            ) : null
+          ) : (
+            <Button
+              variant="outline"
+              size="xs"
+              disabled={starting || !canStart}
+              title={
+                !canStart
+                  ? "You cannot start threads here."
+                  : hold === "waits"
+                    ? `${action} playbook ${entry.playbook} once its blockers close`
+                    : `${action} playbook ${entry.playbook}`
+              }
+              onClick={onStart}
+            >
+              {failure === null ? <PlayIcon aria-hidden /> : <RotateCcwIcon aria-hidden />}
+              {action}
+            </Button>
+          )}
+          {issue.playbooks === undefined || hold === "waits" ? null : (
             <>
-              <GroupSeparator />
+              {hold === "slot" && entry.startQueued !== true ? null : <GroupSeparator />}
               <Menu>
                 <MenuTrigger
                   render={

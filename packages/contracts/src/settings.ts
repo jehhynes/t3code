@@ -1544,6 +1544,10 @@ export const ServerSettings = Schema.Struct({
       Effect.succeed(Duration.toMillis(DEFAULT_GITHUB_BOARD_READ_INTERVAL)),
     ),
   ),
+  // Fork-only (jehhynes/t3code#76): how many issue threads a playbook or Start runs at once.
+  maxRunningIssueThreads: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 10 })).pipe(
+    Schema.withDecodingDefault(Effect.succeed(2)),
+  ),
   // User-chosen ids preserve rows across edits; undecodable entries round-trip untouched.
   usageLimitSources: Schema.Record(UsageLimitSourceId, UsageLimitSourceConfig).pipe(
     Schema.withDecodingDefault(Effect.succeed({})),
