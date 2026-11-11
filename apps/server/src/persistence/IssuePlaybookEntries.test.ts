@@ -12,7 +12,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     yield* runMigrations();
     const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
     const issueKey = "github github.com acme/web 1";
-    const enter = (playbook: string | null) =>
+    const enter = (playbook: string | null, leftAt: string | null = null) =>
       store.reconcile(() => [
         {
           issueKey,
@@ -21,6 +21,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           startedBy: null,
           autoTried: false,
           startFailure: null,
+          leftAt,
         },
       ]);
 
@@ -32,6 +33,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startedBy: null,
       autoTried: false,
       startFailure: null,
+      leftAt: null,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -40,7 +42,9 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     assert.strictEqual((yield* store.list).get(issueKey)?.startedBy, first.startedBy);
 
     // The issue leaves and comes back while the first Start is still running.
-    yield* enter(null);
+    const leftAt = "2026-11-11T12:00:00.000Z";
+    yield* enter(null, leftAt);
+    assert.strictEqual((yield* store.list).get(issueKey)?.leftAt, leftAt);
     yield* enter("develop");
     const second = { issueKey, playbook: "develop", startedBy: "issue-playbook:c" };
     assert.isTrue(yield* store.claim(second));
@@ -72,6 +76,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         startedBy: null,
         autoTried: false,
         startFailure: null,
+        leftAt: null,
       },
     ]);
     assert.isTrue(
@@ -98,6 +103,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       startedBy: manual.startedBy,
       autoTried: true,
       startFailure: null,
+      leftAt: null,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);

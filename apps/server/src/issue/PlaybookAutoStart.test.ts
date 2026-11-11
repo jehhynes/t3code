@@ -82,6 +82,7 @@ const row = (key: string, autoTried = false): IssuePlaybookEntries.PlaybookEntry
   startedBy: null,
   autoTried,
   startFailure: null,
+  leftAt: null,
 });
 
 describe("autoStartEntries", () => {

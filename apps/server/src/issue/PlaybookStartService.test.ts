@@ -214,6 +214,7 @@ function harness<A, E>(
           startedBy: waitingWith === null ? "issue-playbook:earlier" : null,
           autoTried: false,
           startFailure: input.startFailure ?? null,
+          leftAt: null,
         },
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;

@@ -57,6 +57,7 @@ const row = (
   boardKey = "acme/1",
   autoTried = false,
   startFailure: string | null = null,
+  leftAt: string | null = null,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -64,7 +65,9 @@ const row = (
   startedBy,
   autoTried,
   startFailure,
+  leftAt,
 });
+const now = "2026-11-11T12:00:00.000Z";
 const failed = "The project has no default model.";
 
 describe("reconcilePlaybookEntries", () => {
@@ -99,29 +102,32 @@ describe("reconcilePlaybookEntries", () => {
       writes: [],
     },
     {
-      name: "an issue that moves to another selection waits with it, open thread or not, untried",
+      name: "an issue that moves to another selection waits with it, open thread or not, untried, and has not left",
       rows: [
-        row("1", "develop", started, "acme/1", true),
+        row("1", "develop", started, "acme/1", true, null, earlier),
         row("2", "develop", null, "acme/1", true, failed),
       ],
       boards: [board(1, [entry("1", "ship", true), entry("2", "ship")])],
-      writes: [row("1", "ship", null), row("2", "ship", null)],
+      writes: [row("1", "ship", null, "acme/1", false, null, earlier), row("2", "ship", null)],
     },
     {
-      name: "an issue that leaves every selection, or the board, leaves its entry",
+      name: "an issue that leaves every selection, or the board, leaves its entry at the read's time",
       rows: [
-        row("1", "develop", started),
+        row("1", "develop", started, "acme/1", false, null, earlier),
         row("2", "develop", null, "acme/1", true, failed),
-        row("3", null, null),
+        row("3", null, null, "acme/1", false, null, earlier),
       ],
-      boards: [board(1, [entry("1", null)])],
-      writes: [row("1", null, null), row("2", null, null)],
+      boards: [board(1, [entry("1", null), entry("3", null)])],
+      writes: [
+        row("1", null, null, "acme/1", false, null, now),
+        row("2", null, null, "acme/1", false, null, now),
+      ],
     },
     {
-      name: "an issue that comes back waits, even with its thread still open",
-      rows: [row("1", null, null)],
+      name: "an issue that comes back waits, even with its thread still open, keeping when it left",
+      rows: [row("1", null, null, "acme/1", false, null, earlier)],
       boards: [board(1, [entry("1", "develop", true)])],
-      writes: [row("1", "develop", null)],
+      writes: [row("1", "develop", null, "acme/1", false, null, earlier)],
     },
     {
       name: "a board that is off or failed changes none of its issues",
@@ -143,15 +149,16 @@ describe("reconcilePlaybookEntries", () => {
     },
     {
       name: "an issue that moved to another board follows it, keeping its entry",
-      rows: [row("1", "develop", null, "acme/1", true, failed)],
+      rows: [row("1", "develop", null, "acme/1", true, failed, earlier)],
       boards: [board(1, []), board(2, [entry("1", "develop")])],
-      writes: [row("1", "develop", null, "acme/2", true, failed)],
+      writes: [row("1", "develop", null, "acme/2", true, failed, earlier)],
     },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
       reconcilePlaybookEntries({
         rows: new Map(rows.map((candidate) => [candidate.issueKey, candidate])),
         boards,
+        now,
       }),
     ).toEqual(writes);
   });

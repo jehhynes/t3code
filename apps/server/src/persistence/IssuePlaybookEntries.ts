@@ -29,6 +29,11 @@ const PlaybookEntryRow = Schema.Struct({
    * entry waits again only through another failed start or a new entry, which replace it.
    */
   startFailure: Schema.NullOr(Schema.String),
+  /**
+   * When the issue last left every selection, as an ISO time, or null; kept through later
+   * entries, so its threads settle once for each leave (jehhynes/t3code#57).
+   */
+  leftAt: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -77,7 +82,8 @@ const make = Effect.gen(function* () {
     Result: PlaybookEntryRow,
     execute: () => sql`
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
-        started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure"
+        started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
+        left_at AS "leftAt"
       FROM issue_playbook_entries
     `,
   });
@@ -96,18 +102,19 @@ const make = Effect.gen(function* () {
         for (const row of writes) {
           yield* sql`
             INSERT INTO issue_playbook_entries (
-              issue_key, board, playbook, started_by, auto_tried, start_failure
+              issue_key, board, playbook, started_by, auto_tried, start_failure, left_at
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
-              ${row.autoTried ? 1 : 0}, ${row.startFailure}
+              ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
               playbook = excluded.playbook,
               started_by = excluded.started_by,
               auto_tried = excluded.auto_tried,
-              start_failure = excluded.start_failure
+              start_failure = excluded.start_failure,
+              left_at = excluded.left_at
           `;
           next.set(row.issueKey, row);
         }

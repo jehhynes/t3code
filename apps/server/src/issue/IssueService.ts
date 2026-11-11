@@ -640,7 +640,12 @@ const make = Effect.gen(function* () {
         : yield* (
             playbookErrors.length === 0
               ? playbookEntries.reconcile((current) =>
-                  reconcilePlaybookEntries({ rows: current, boards }),
+                  reconcilePlaybookEntries({
+                    rows: current,
+                    boards,
+                    // Fork-only (jehhynes/t3code#57): when an issue leaves, its threads settle.
+                    now: DateTime.formatIso(DateTime.makeUnsafe(readAt)),
+                  }),
                 )
               : playbookEntries.list
           ).pipe(Effect.mapError(entriesError));
