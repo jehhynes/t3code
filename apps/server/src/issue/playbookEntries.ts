@@ -13,7 +13,7 @@ import {
   snoozedPast,
   type PlaybookEntryRow,
 } from "../persistence/IssuePlaybookEntries.ts";
-import { issueThreadKey } from "../persistence/IssueThreadLinks.ts";
+import { issueThreadKey, type PlaybookReturns } from "../persistence/IssueThreadLinks.ts";
 
 const samePlaybook = (a: string | null, b: string | null) =>
   (a?.toLowerCase() ?? null) === (b?.toLowerCase() ?? null);
@@ -41,6 +41,8 @@ export function waitingFields(
   row: PlaybookEntryRow | undefined,
   /** The lowercased names of the playbooks that start by themselves. */
   selfStarting: ReadonlySet<string>,
+  /** The issue's started threads by lowercased playbook name (jehhynes/t3code#102). */
+  returns?: ReadonlyMap<string, PlaybookReturns>,
 ) {
   const playbook = waitingPlaybook(row);
   const startQueued = playbook !== null && row?.startQueued === true;
@@ -54,6 +56,7 @@ export function waitingFields(
     snoozedUntil: playbook === null ? null : (row?.snoozedUntil ?? null),
     triagedBy: playbook === null ? null : (row?.triage ?? null), // Fork-only (jehhynes/t3code#93)
     nothingNewSince: playbook === null ? null : (row?.nothingNewSince ?? null), // Fork-only (jehhynes/t3code#100)
+    returned: playbook === null ? null : (returns?.get(playbook.toLowerCase()) ?? null), // Fork-only (jehhynes/t3code#102)
   };
 }
 

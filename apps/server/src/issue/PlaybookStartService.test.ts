@@ -30,6 +30,8 @@ import * as Layer from "effect/Layer";
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
+import * as SqlClient from "effect/sql/SqlClient";
+import type { SqlError } from "effect/sql/SqlError";
 import type * as Result from "effect/Result";
 
 import * as ServerConfig from "../config.ts";
@@ -210,6 +212,11 @@ function harness<A, E>(
     /** Each issue the triage service was asked to classify again (jehhynes/t3code#93). */
     readonly retried: ReadonlyArray<string>;
     readonly entries: IssuePlaybookEntries.IssuePlaybookEntriesRepository["Service"];
+    /** Each start's recorded prompt message and playbook (jehhynes/t3code#102). */
+    readonly starts: Effect.Effect<
+      ReadonlyArray<{ readonly messageId: string; readonly playbook: string }>,
+      SqlError
+    >;
     /** The issue's entry as stored now. */
     readonly stored: Effect.Effect<
       IssuePlaybookEntries.PlaybookEntryRow | undefined,
@@ -303,7 +310,12 @@ function harness<A, E>(
         })),
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;
+      const sql = yield* SqlClient.SqlClient;
       return yield* body({
+        starts: sql<{ readonly messageId: string; readonly playbook: string }>`
+          SELECT message_id AS "messageId", playbook FROM issue_playbook_starts
+          WHERE issue_key = ${issueKey} ORDER BY message_id
+        `,
         start: (playbook) =>
           service
             .start({ playbook, entry: input.entry ?? entry }, { auto: input.auto === true })
@@ -580,7 +592,9 @@ function start(input: Options & { readonly playbook: string }) {
       .start(input.playbook)
       .pipe(
         Effect.flatMap((result) =>
-          context.stored.pipe(Effect.map((stored) => ({ ...context, result, stored }))),
+          Effect.all([context.stored, context.starts]).pipe(
+            Effect.map(([stored, starts]) => ({ ...context, result, stored, starts })),
+          ),
         ),
       ),
   );
@@ -589,9 +603,13 @@ function start(input: Options & { readonly playbook: string }) {
 describe("PlaybookStartService.start", () => {
   it.effect("launches with the playbook's settings and prompt, then links the issue", () =>
     Effect.gen(function* () {
-      const { result, launched, linked, sent, stored, refreshed } = yield* start({
+      const { result, launched, linked, sent, stored, refreshed, starts } = yield* start({
         playbook: "Develop",
       });
+      // Fork-only (jehhynes/t3code#102): the claim records the prompt's playbook.
+      expect(starts).toEqual([
+        { messageId: launched[0]?.initialMessage?.messageId, playbook: "develop" },
+      ]);
 
       expect(result).toMatchObject({ _tag: "Success", success: { threadId } });
       expect(refreshed()).toBe(1);
@@ -1068,11 +1086,12 @@ describe("PlaybookStartService.start", () => {
 
   it.effect("sends the playbook's prompt to the issue's open thread, queued behind its turn", () =>
     Effect.gen(function* () {
-      const { result, launched, linked, sent, stored } = yield* start({
+      const { result, launched, linked, sent, stored, starts } = yield* start({
         playbook: "plain",
         waitingWith: "plain",
         openIssueKeys: [issueKey],
       });
+      expect(starts).toEqual([{ messageId: sent[0]?.messageId, playbook: "plain" }]);
 
       expect(result).toMatchObject({ _tag: "Success", success: { threadId: openThreadId } });
       expect(launched).toEqual([]);
@@ -1167,6 +1186,9 @@ describe("PlaybookStartService.start", () => {
       const started = yield* start({ playbook: "deploy", waitingWith: "deploy", auto: true });
       expect(started.result).toMatchObject({ _tag: "Success" });
       expect(started.stored?.autoTried).toBe(true);
+      expect(started.starts).toEqual([
+        { messageId: started.launched[0]?.initialMessage?.messageId, playbook: "deploy" },
+      ]);
     }),
   );
 
@@ -1216,9 +1238,13 @@ describe("PlaybookStartService.start", () => {
         committed: ["thread.create", "initial-message"],
         launch: () => Effect.fail(launchError("create-thread", threadId)),
       },
-      ({ start: startPlaybook, launched, linked, dispatched, stored, refreshed }) =>
+      ({ start: startPlaybook, launched, linked, dispatched, stored, refreshed, starts }) =>
         Effect.gen(function* () {
           const result = yield* startPlaybook(input.playbook);
+          // Fork-only (jehhynes/t3code#102): the prompt reached its thread, so its record counts.
+          expect((yield* starts).map((start) => start.messageId)).toEqual([
+            launched[0]?.initialMessage?.messageId,
+          ]);
 
           expect(result).toMatchObject({
             _tag: "Failure",
@@ -1251,7 +1277,7 @@ describe("PlaybookStartService.start", () => {
           // The launch's first read after its thread exists names no thread.
           launch: () => Effect.fail(launchError("read-receipt")),
         },
-        ({ start: startPlaybook, launched, linked, sent, dispatched, stored }) =>
+        ({ start: startPlaybook, launched, linked, sent, dispatched, stored, starts }) =>
           Effect.gen(function* () {
             const detail =
               'Thread "#6 Start a thread" was created, but the prompt could not be sent to it; Retry sends it there.';
@@ -1266,6 +1292,11 @@ describe("PlaybookStartService.start", () => {
               startedBy: null,
               startFailure: detail,
             });
+            // Fork-only (jehhynes/t3code#102): the released start keeps its record; its prompt is
+            // in no thread, so it counts for nothing.
+            expect(yield* starts).toEqual([
+              { messageId: launched[0]?.initialMessage?.messageId, playbook: "develop" },
+            ]);
 
             expect(yield* startPlaybook("develop")).toMatchObject({
               _tag: "Success",
@@ -1274,6 +1305,12 @@ describe("PlaybookStartService.start", () => {
             expect(launched).toHaveLength(1);
             expect(sent).toMatchObject([{ threadId }]);
             expect(sent[0]?.text).toMatch(/^Work on .*untrusted data\.$/s);
+            // Fork-only (jehhynes/t3code#102): Retry's prompt, the thread's first message, is
+            // recorded with its playbook.
+            expect(yield* starts).toContainEqual({
+              messageId: sent[0]?.messageId,
+              playbook: "develop",
+            });
           }),
       ),
   );
@@ -1299,7 +1336,7 @@ describe("PlaybookStartService.start", () => {
         commandId: CommandId.make("link"),
         commandType: "thread.issue.link",
       });
-      const { result, launched, stored } = yield* start({
+      const { result, launched, stored, starts } = yield* start({
         ...input,
         playbook: "develop",
         link: () => Effect.fail(failure),
@@ -1307,6 +1344,9 @@ describe("PlaybookStartService.start", () => {
 
       expect(result).toMatchObject({ _tag: "Failure", failure: { detail } });
       expect(stored).toMatchObject({ startedBy: launched[0]?.commandId, startFailure: null });
+      expect(starts.map((start) => start.messageId)).toEqual([
+        launched[0]?.initialMessage?.messageId,
+      ]); // Fork-only (jehhynes/t3code#102)
     }),
   );
 
@@ -1317,7 +1357,7 @@ describe("PlaybookStartService.start", () => {
         committed: ["message.dispatch"],
         send: () => Effect.fail(new Error("unreadable") as never),
       },
-      ({ start: startPlaybook, sent, stored }) =>
+      ({ start: startPlaybook, sent, stored, starts }) =>
         Effect.gen(function* () {
           expect(yield* startPlaybook("develop")).toMatchObject({
             _tag: "Failure",
@@ -1326,6 +1366,7 @@ describe("PlaybookStartService.start", () => {
             },
           });
           expect((yield* stored)?.startedBy).toBe(sent[0]?.commandId);
+          expect((yield* starts).map((start) => start.messageId)).toEqual([sent[0]?.messageId]); // Fork-only (jehhynes/t3code#102)
 
           yield* startPlaybook("develop");
           expect(sent).toHaveLength(1);
@@ -1352,11 +1393,15 @@ describe("PlaybookStartService.start", () => {
           committed,
           launch: () => Deferred.succeed(launching, undefined).pipe(Effect.andThen(Effect.never)),
         },
-        ({ start: startPlaybook, linked, dispatched, stored }) =>
+        ({ start: startPlaybook, linked, dispatched, stored, starts, launched }) =>
           Effect.gen(function* () {
             const started = yield* Effect.forkChild(startPlaybook("develop"));
             yield* Deferred.await(launching);
             yield* Fiber.interrupt(started);
+            // Fork-only (jehhynes/t3code#102): an interrupted start keeps its record either way.
+            expect((yield* starts).map((start) => start.messageId)).toEqual([
+              launched[0]?.initialMessage?.messageId,
+            ]);
 
             expect(linked.map((link) => link.threadId)).toEqual([threadId]);
             // The launch may have scheduled the run's preparation, so its run is left alone.
@@ -2015,6 +2060,8 @@ describe("PlaybookStartService.startOnSend", () => {
       readonly holdBeforeSend?: boolean;
       /** The triage playbook chose this playbook after the draft was named (jehhynes/t3code#93). */
       readonly chosenBeforeSend?: string;
+      /** Another playbook whose prompt the draft took (jehhynes/t3code#102). */
+      readonly use?: string;
     },
   ) =>
     harness(input, (context) =>
@@ -2024,6 +2071,7 @@ describe("PlaybookStartService.startOnSend", () => {
           playbook: input.playbook ?? "develop",
           entry: input.entry ?? entry,
           threadId: thread,
+          ...(input.use === undefined ? {} : { use: input.use }),
         });
         if (input.holdBeforeSend === true) yield* context.hold;
         if (input.chosenBeforeSend !== undefined) {
@@ -2038,7 +2086,7 @@ describe("PlaybookStartService.startOnSend", () => {
           yield* context.service.handleEvent(messageEvent({ ...message, threadId: thread }));
         }
         yield* context.service.drain;
-        return { ...context, stored: yield* context.stored };
+        return { ...context, stored: yield* context.stored, starts: yield* context.starts };
       }),
     );
 
@@ -2050,10 +2098,13 @@ describe("PlaybookStartService.startOnSend", () => {
         launched,
         sent: sends,
         refreshed,
+        starts,
       } = yield* sent({
         messages: [composerMessage(), composerMessage({ id: MessageId.make("message-next") })],
       });
 
+      // Fork-only (jehhynes/t3code#102): the message I sent is the start's prompt.
+      expect(starts).toEqual([{ messageId: "message-sent", playbook: "develop" }]);
       expect(stored).toMatchObject({
         playbook: "develop",
         startedBy: `issue-playbook-draft:${draftThreadId}`,
@@ -2212,23 +2263,42 @@ describe("PlaybookStartService.startOnSend", () => {
 
   it.effect("keeps the issue in its own selection for another playbook's draft", () =>
     Effect.gen(function* () {
-      const { stored } = yield* sent({
+      const { stored, starts } = yield* sent({
         playbook: "plain",
         waitingWith: "plain",
+        use: "Fix",
         messages: [composerMessage()],
       });
 
       expect(stored).toMatchObject({ playbook: "plain", startedBy: expect.any(String) });
+      // Fork-only (jehhynes/t3code#102): its thread counts for the playbook the draft took.
+      expect(starts).toEqual([{ messageId: "message-sent", playbook: "fix" }]);
     }),
+  );
+
+  // Fork-only (jehhynes/t3code#102)
+  it.effect("refuses a draft whose playbook is no longer in the file, before it is placed", () =>
+    harness({}, ({ service }) =>
+      Effect.gen(function* () {
+        const registered = yield* service
+          .startOnSend({ playbook: "develop", entry, threadId: draftThreadId, use: "gone" })
+          .pipe(Effect.result);
+        expect(registered).toMatchObject({
+          _tag: "Failure",
+          failure: { detail: "Playbook gone is not in playbooks.json, or it has a mistake." },
+        });
+      }),
+    ),
   );
 
   // Fork-only (jehhynes/t3code#93)
   it.effect("starts the issue with a draft opened before its triage playbook chose", () =>
     Effect.gen(function* () {
-      const { stored, linked } = yield* sent({
+      const { stored, linked, starts } = yield* sent({
         playbook: "triage",
         waitingWith: "triage",
         chosenBeforeSend: "fix",
+        use: "fix",
         messages: [composerMessage()],
       });
 
@@ -2238,6 +2308,7 @@ describe("PlaybookStartService.startOnSend", () => {
         startedBy: `issue-playbook-draft:${draftThreadId}`,
       });
       expect(linked).toHaveLength(1);
+      expect(starts).toEqual([{ messageId: "message-sent", playbook: "fix" }]);
     }),
   );
 

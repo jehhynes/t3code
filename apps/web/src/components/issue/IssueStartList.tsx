@@ -132,6 +132,7 @@ function SnoozedRow({
       <BoardRowLines
         entry={entry}
         failure={entry.startFailure ?? null}
+        returned={entry.returned}
         note={
           entry.snoozedUntil == null
             ? null
@@ -229,6 +230,7 @@ function WaitingRow({
                 : "Nothing is newer than its earlier thread"
         }
         noteDetail={nothingNew}
+        returned={entry.returned}
       />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">

@@ -185,6 +185,8 @@ function harness<A, E>(
      * cannot be read; none when left out (jehhynes/t3code#100).
      */
     readonly earlierWork?: string | "fails";
+    /** The playbook that started that thread, when recorded (jehhynes/t3code#102). */
+    readonly earlierPlaybook?: string;
     /** The issue's comments, oldest first. */
     readonly comments?: ReadonlyArray<{ readonly login: string | null; readonly at: string }>;
     /** My GitHub login, or `fails` when it cannot be read. */
@@ -292,7 +294,11 @@ function harness<A, E>(
             earlierWork: () =>
               input.earlierWork === "fails"
                 ? Effect.fail(new PersistenceSqlError({ operation: "test", cause: hostile }))
-                : Effect.succeed(input.earlierWork ?? null),
+                : Effect.succeed(
+                    input.earlierWork === undefined
+                      ? null
+                      : { at: input.earlierWork, playbook: input.earlierPlaybook ?? null },
+                  ),
           }),
           Layer.succeed(
             IssueTrackerRegistry.IssueTrackerRegistry,
@@ -647,6 +653,12 @@ describe("IssueTriage", () => {
       held: false,
     },
     {
+      name: "the earlier thread's recorded playbook is named (jehhynes/t3code#102)",
+      comments: [{ login: "ana", at: "2026-11-10T09:00:00Z" }],
+      held: false,
+      earlierPlaybook: "fix",
+    },
+    {
       name: "a bot's newer comment is new activity",
       comments: [{ login: "github-actions[bot]", at: "2026-11-10T09:00:00Z" }],
       held: false,
@@ -662,15 +674,32 @@ describe("IssueTriage", () => {
     { name: "no comment: held for Start, its try used", comments: [], held: true },
   ])(
     "classifies a returning issue on activity newer than its earlier thread: $name",
-    ({ comments, held }) =>
+    ({
+      comments,
+      held,
+      earlierPlaybook,
+    }: {
+      comments: ReadonlyArray<{ readonly login: string; readonly at: string }>;
+      held: boolean;
+      earlierPlaybook?: string;
+    }) =>
       harness(
-        { listed: [], rows: [row("1")], earlierWork: earlierThread, comments },
+        {
+          listed: [],
+          rows: [row("1")],
+          earlierWork: earlierThread,
+          comments,
+          ...(earlierPlaybook === undefined ? {} : { earlierPlaybook }),
+        },
         ({ calls, refreshed, publish, stored }) =>
           Effect.gen(function* () {
             yield* publish(result([entry("1")]));
             const call = yield* Queue.take(calls);
-            const handled =
-              "Earlier work: a thread for this issue started at 2026-11-10 08:00:00 UTC and handled the issue's text and every comment up to then, so they are background. Choose by what came after.";
+            const handled = `Earlier work: ${
+              earlierPlaybook === undefined
+                ? "a thread for this issue started at 2026-11-10 08:00:00 UTC and"
+                : `playbook ${earlierPlaybook} started a thread for this issue at 2026-11-10 08:00:00 UTC, which`
+            } handled the issue's text and every comment up to then, so they are background. Choose by what came after.`;
             const nothingNew =
               " No comment by anyone else came after, so nothing new asks for an action.";
             expect(call.prompt).toContain(held ? `${handled}${nothingNew}\n` : `${handled}\n`);

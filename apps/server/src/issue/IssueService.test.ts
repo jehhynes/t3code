@@ -176,6 +176,8 @@ function makeService(input: {
   readonly openIssueKeys?: ReadonlyArray<string>;
   /** The entries store, for a test that starts entries; else a fresh one. */
   readonly playbookEntries?: IssuePlaybookEntries.IssuePlaybookEntriesRepository["Service"];
+  /** Fork-only (jehhynes/t3code#102): each issue's started threads by playbook. */
+  readonly returns?: ReadonlyMap<string, ReadonlyMap<string, IssueThreadLinks.PlaybookReturns>>;
 }) {
   const enabledBoards = input.enabledBoards ?? new Set<string>();
   return Effect.gen(function* () {
@@ -230,6 +232,7 @@ function makeServiceIn(
                   ]),
                 ),
             ),
+            returns: Effect.succeed(input.returns ?? new Map()), // Fork-only (jehhynes/t3code#102)
           }),
           Layer.succeed(IssuePlaybookEntries.IssuePlaybookEntriesRepository, playbookEntries),
           Layer.mock(IssueBoardSources.IssueBoardSourcesRepository)({
@@ -880,6 +883,7 @@ describe("IssueService", () => {
             issueKey: "github github.com acme/web 1",
             playbook: "develop",
             startedBy: "issue-playbook:1",
+            messageId: "message-1", // Fork-only (jehhynes/t3code#102)
           }),
         ).toBe(true);
         statuses.set("3", "Ready");
@@ -954,6 +958,8 @@ describe("IssueService", () => {
       const proceed = yield* Deferred.make<void>();
       let reads = 0;
       const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+      const issueKey = "github github.com acme/web 1";
+      const returned = { count: 2, lastAt: "2026-11-10T08:00:00.000Z" }; // Fork-only (jehhynes/t3code#102)
       const service = yield* makeService({
         projects: [],
         enabledBoards: new Set(["acme/1"]),
@@ -962,6 +968,7 @@ describe("IssueService", () => {
           { name: "develop", rules: { status: ["Ready"] }, prompt: "p", autoStart: true }, // Fork-only (jehhynes/t3code#65)
         ]),
         playbookEntries: store,
+        returns: new Map([[issueKey, new Map([["develop", returned]])]]), // Fork-only (jehhynes/t3code#102)
         trackers: [
           fakeTracker({
             listBoard: () => {
@@ -1011,6 +1018,7 @@ describe("IssueService", () => {
           issueKey: "github github.com acme/web 1",
           playbook: "develop",
           startedBy: "issue-playbook:1",
+          messageId: "message-1", // Fork-only (jehhynes/t3code#102)
         }),
       ).toBe(true);
       yield* service.refreshWaiting;
@@ -1041,6 +1049,13 @@ describe("IssueService", () => {
         [[false, false]],
         [[false, true]],
         [[true, true]],
+      ]);
+      // Fork-only (jehhynes/t3code#102): the waiting issue's Returned mark, none once started.
+      expect(results.map((result) => result.boards[0]?.entries[0]?.returned)).toEqual([
+        returned,
+        null,
+        returned,
+        returned,
       ]);
       expect(reads).toBe(1);
     }).pipe(

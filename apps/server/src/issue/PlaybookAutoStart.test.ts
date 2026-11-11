@@ -317,6 +317,7 @@ function harness<A, E>(
                     issueKey: issueKey(startEntry.key),
                     playbook,
                     startedBy: `issue-playbook:${startEntry.key}`,
+                    messageId: `message-${startEntry.key}`,
                     auto: options?.auto === true,
                     selfStarting: playbook === "deploy",
                   })

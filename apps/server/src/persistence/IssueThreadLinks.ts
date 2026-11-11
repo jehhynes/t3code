@@ -1,5 +1,5 @@
-// Fork-only: which issues have an open thread (jehhynes/t3code#6, #7), and their earlier work
-// (jehhynes/t3code#100).
+// Fork-only: which issues have an open thread (jehhynes/t3code#6, #7), their earlier work
+// (jehhynes/t3code#100), and the threads each playbook started for them (jehhynes/t3code#102).
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -29,6 +29,20 @@ export interface IssueWorktree {
   readonly branch: string | null;
 }
 
+/** The threads a playbook started for an issue that ran a turn (jehhynes/t3code#102). */
+export interface PlaybookReturns {
+  readonly count: number;
+  /** When the first turn of the latest of them started, as a UTC ISO time. */
+  readonly lastAt: string;
+}
+
+/** The issue's earlier thread, and the playbook that started it when recorded. */
+export interface EarlierWork {
+  /** When its first turn started, as a UTC ISO time. */
+  readonly at: string;
+  readonly playbook: string | null;
+}
+
 export class IssueThreadLinksRepository extends Context.Service<
   IssueThreadLinksRepository,
   {
@@ -56,9 +70,21 @@ export class IssueThreadLinksRepository extends Context.Service<
     /**
      * When the first turn of the issue's latest thread that ran started, as a UTC ISO time: the
      * latest of its threads' first started turns, settled and archived included, deleted not; null
-     * when none ran (jehhynes/t3code#100).
+     * when none ran (jehhynes/t3code#100). With the playbook whose prompt is that thread's first
+     * message, when a start recorded one for this issue (jehhynes/t3code#102).
      */
-    readonly earlierWork: (issueKey: string) => Effect.Effect<string | null, PersistenceSqlError>;
+    readonly earlierWork: (
+      issueKey: string,
+    ) => Effect.Effect<EarlierWork | null, PersistenceSqlError>;
+    /**
+     * By `issueThreadKey`, then by lowercased playbook name: the issue's threads, not deleted and
+     * still linked to it, whose first message is a prompt that playbook's start sent for it, and
+     * that ran a turn (jehhynes/t3code#102).
+     */
+    readonly returns: Effect.Effect<
+      ReadonlyMap<string, ReadonlyMap<string, PlaybookReturns>>,
+      PersistenceSqlError
+    >;
   }
 >()("t3/persistence/IssueThreadLinks/IssueThreadLinksRepository") {}
 
@@ -173,10 +199,93 @@ const make = Effect.gen(function* () {
           const first = firstTurns.get(row.threadId);
           if (first === undefined || startedAt < first) firstTurns.set(row.threadId, startedAt);
         }
-        if (firstTurns.size === 0) return null;
-        return DateTime.formatIso(DateTime.makeUnsafe(Math.max(...firstTurns.values())));
+        let latest: { readonly threadId: string; readonly at: number } | undefined;
+        for (const [threadId, at] of firstTurns) {
+          if (latest === undefined || at > latest.at) latest = { threadId, at };
+        }
+        if (latest === undefined) return null;
+        const [first] = yield* sql<{ playbook: string | null; issueKey: string | null }>`
+          SELECT s.playbook AS playbook, s.issue_key AS "issueKey"
+          FROM orchestration_v2_projection_messages AS m
+          LEFT JOIN issue_playbook_starts AS s ON s.message_id = m.message_id
+          WHERE m.thread_id = ${latest.threadId} AND m.role = 'user'
+          ORDER BY m.created_at, m.message_id
+          LIMIT 1
+        `.pipe(NodeSqliteClient.readOnly);
+        return {
+          at: DateTime.formatIso(DateTime.makeUnsafe(latest.at)),
+          playbook: first?.issueKey === issueKey ? first.playbook : null,
+        };
       },
       Effect.mapError((cause) => new PersistenceSqlError({ operation: "issueEarlierWork", cause })),
+    ),
+    returns: sql<{
+      issueKey: string;
+      playbook: string;
+      threadId: string;
+      startedAt: string | null;
+      tracker: string;
+      host: string;
+      scope: string;
+      key: string;
+    }>`
+      SELECT s.issue_key AS "issueKey", s.playbook AS playbook, t.thread_id AS "threadId",
+        (
+          SELECT json_extract(r.payload_json, '$.startedAt')
+          FROM orchestration_v2_projection_runs AS r
+          WHERE r.thread_id = t.thread_id
+            AND json_extract(r.payload_json, '$.startedAt') IS NOT NULL
+          ORDER BY r.ordinal
+          LIMIT 1
+        ) AS "startedAt",
+        json_extract(link.value, '$.tracker') AS tracker,
+        json_extract(link.value, '$.host') AS host,
+        json_extract(link.value, '$.scope') AS scope,
+        json_extract(link.value, '$.key') AS key
+      FROM issue_playbook_starts AS s
+      -- CROSS JOIN keeps the start records outermost, so no board read scans every message.
+      CROSS JOIN orchestration_v2_projection_messages AS m ON m.message_id = s.message_id
+      CROSS JOIN orchestration_v2_projection_threads AS t ON t.thread_id = m.thread_id
+      JOIN json_each(t.payload_json, '$.issues') AS link
+      WHERE t.deleted_at IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM orchestration_v2_projection_messages AS e
+          WHERE e.thread_id = m.thread_id AND e.role = 'user'
+            AND (e.created_at < m.created_at
+              OR (e.created_at = m.created_at AND e.message_id < m.message_id))
+        )
+    `.pipe(
+      NodeSqliteClient.readOnly,
+      Effect.map((rows) => {
+        const threads = new Map<string, Map<string, Map<string, number>>>();
+        for (const row of rows) {
+          if (row.startedAt === null || issueThreadKey(row) !== row.issueKey) continue;
+          const startedAt = Date.parse(row.startedAt);
+          if (Number.isNaN(startedAt)) continue;
+          const byPlaybook = threads.get(row.issueKey) ?? new Map<string, Map<string, number>>();
+          threads.set(row.issueKey, byPlaybook);
+          const playbook = row.playbook.toLowerCase();
+          const started = byPlaybook.get(playbook) ?? new Map<string, number>();
+          byPlaybook.set(playbook, started);
+          started.set(row.threadId, startedAt);
+        }
+        return new Map(
+          [...threads].map(([issueKey, byPlaybook]) => [
+            issueKey,
+            new Map(
+              [...byPlaybook].map(([playbook, started]) => [
+                playbook,
+                {
+                  count: started.size,
+                  lastAt: DateTime.formatIso(DateTime.makeUnsafe(Math.max(...started.values()))),
+                },
+              ]),
+            ),
+          ]),
+        );
+      }),
+      Effect.mapError((cause) => new PersistenceSqlError({ operation: "issueReturns", cause })),
+      Effect.withSpan("IssueThreadLinksRepository.returns"),
     ),
   });
 });

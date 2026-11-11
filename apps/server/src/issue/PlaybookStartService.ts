@@ -648,6 +648,7 @@ const make = Effect.gen(function* () {
         auto,
         selfStarting: playbook.autoStart === true,
         now,
+        messageId: startIds(id).messageId, // Fork-only (jehhynes/t3code#102)
       })
       .pipe(Effect.mapError(saveError));
     // Decided against the latest read under its lock, so no read publishes in between; by itself,
@@ -785,7 +786,12 @@ const make = Effect.gen(function* () {
   // with the messages it already had, which an edit or a promotion would update again.
   const startsOnSend = new Map<
     ThreadId,
-    { readonly input: IssuePlaybookStartOnSendInput; readonly earlier: ReadonlySet<MessageId> }
+    {
+      readonly input: IssuePlaybookStartOnSendInput;
+      readonly earlier: ReadonlySet<MessageId>;
+      /** The playbook whose prompt the draft took, as `playbooks.json` names it. */
+      readonly startedWith: string | undefined;
+    }
   >();
 
   const startOnSend: PlaybookStartService["Service"]["startOnSend"] = Effect.fn(
@@ -795,6 +801,9 @@ const make = Effect.gen(function* () {
       return yield* fail(`No T3 Code project is for ${input.entry.scope}.`);
     }
     yield* refuseHeld(input.playbook, input.entry);
+    // Resolved before the prompt is placed, so a send records a playbook the file names.
+    const startedWith =
+      input.use === undefined ? undefined : (yield* findPlaybook(input.use)).playbook.name;
     const { messages } = yield* threads
       .getThreadRecords(input.threadId, ["messages"], { messageRoles: ["user"] })
       .pipe(
@@ -808,6 +817,7 @@ const make = Effect.gen(function* () {
     startsOnSend.set(input.threadId, {
       input,
       earlier: new Set(messages.map((message) => message.id)),
+      startedWith,
     });
     // Worked out when the draft is sent, so the names are free then.
     const entry = input.entry;
@@ -847,10 +857,15 @@ const make = Effect.gen(function* () {
 
   /** Claims the entry as Start would; a thread sent after another start stays an ordinary thread. */
   const startSent = Effect.fn("PlaybookStartService.startSent")(function* ({
-    playbook,
-    entry,
-    threadId,
-  }: IssuePlaybookStartOnSendInput) {
+    input: { playbook, entry, threadId },
+    messageId,
+    startedWith,
+  }: {
+    readonly input: IssuePlaybookStartOnSendInput;
+    /** The message I sent, which holds the draft's prompt. */
+    readonly messageId: MessageId;
+    readonly startedWith: string | undefined;
+  }) {
     const issueKey = IssueThreadLinks.issueThreadKey(entry);
     // A draft sent once its issue became held starts nothing for the issue (jehhynes/t3code#65).
     // Fork-only (jehhynes/t3code#93): a draft opened before the classifier chose still starts the
@@ -872,6 +887,8 @@ const make = Effect.gen(function* () {
                 playbook,
                 startedBy: `issue-playbook-draft:${threadId}`,
                 orTriage: true,
+                messageId,
+                ...(startedWith === undefined ? {} : { startedWith }),
               });
         }),
       ),
@@ -911,7 +928,11 @@ const make = Effect.gen(function* () {
       if (pending === undefined || pending.earlier.has(event.payload.id)) return;
       startsOnSend.delete(event.threadId);
       yield* issueWorktrees.forgetDraft(event.threadId);
-      yield* worker.enqueue(pending.input);
+      yield* worker.enqueue({
+        input: pending.input,
+        messageId: event.payload.id,
+        startedWith: pending.startedWith,
+      });
     },
   );
 

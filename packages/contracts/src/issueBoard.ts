@@ -100,6 +100,14 @@ export const IssueBoardEntry = Schema.Struct({
    * (jehhynes/t3code#100). Absent from an older server.
    */
   nothingNewSince: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  /**
+   * How many threads for the issue the playbook it waits with started and that ran a turn, and
+   * when the first turn of the latest of them started, as a UTC ISO time; none when there are
+   * none (jehhynes/t3code#102). Absent from an older server.
+   */
+  returned: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ count: PositiveInt, lastAt: Schema.String })),
+  ),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 
@@ -251,5 +259,7 @@ export const IssuePlaybookStartOnSendInput = Schema.Struct({
   playbook: TrimmedNonEmptyString,
   entry: IssueBoardEntry,
   threadId: ThreadId,
+  /** Another playbook whose prompt the draft took (jehhynes/t3code#102). */
+  use: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type IssuePlaybookStartOnSendInput = typeof IssuePlaybookStartOnSendInput.Type;

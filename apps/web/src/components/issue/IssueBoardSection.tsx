@@ -5,11 +5,13 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoard, IssueBoardEntry, ProjectId } from "@t3tools/contracts";
-import { ArrowUpRightIcon, KanbanIcon } from "lucide-react";
+import { ArrowUpRightIcon, KanbanIcon, Undo2Icon } from "lucide-react";
 import { memo, useState } from "react";
 
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { issueEnvironment } from "~/state/issues";
+import { formatChatTimestampTooltip } from "~/timestampFormat";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { Badge } from "../ui/badge";
@@ -66,12 +68,40 @@ function groupBoard(entries: ReadonlyArray<IssueBoardEntry>): ReadonlyArray<Boar
     }));
 }
 
+/** How often the issue's playbook already started a thread for it (jehhynes/t3code#102). */
+function ReturnedMark({
+  playbook,
+  returned,
+}: {
+  playbook: string;
+  returned: NonNullable<IssueBoardEntry["returned"]>;
+}) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const at = formatChatTimestampTooltip(returned.lastAt, timestampFormat);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={<Badge variant="outline" size="sm" aria-label={`Returned ${returned.count}`} />}
+      >
+        <Undo2Icon aria-hidden />
+        {returned.count}
+      </TooltipTrigger>
+      <TooltipPopup>
+        {returned.count === 1
+          ? `Returned: playbook ${playbook} already started a thread for this issue, on ${at}.`
+          : `Returned: playbook ${playbook} already started ${returned.count} threads for this issue, the last on ${at}.`}
+      </TooltipPopup>
+    </Tooltip>
+  );
+}
+
 export function BoardRowLines({
   entry,
   failure,
   hold,
   note,
   noteDetail,
+  returned,
 }: {
   entry: IssueBoardEntry;
   failure?: string | null | undefined;
@@ -81,6 +111,8 @@ export function BoardRowLines({
   note?: string | null | undefined;
   /** Why the note holds, in its tooltip (jehhynes/t3code#100). */
   noteDetail?: string | null | undefined;
+  /** The waiting row's Returned mark; board rows pass none (jehhynes/t3code#102). */
+  returned?: IssueBoardEntry["returned"];
 }) {
   return (
     <>
@@ -114,6 +146,9 @@ export function BoardRowLines({
               >
                 {entry.playbook}
               </Badge>
+            ) : null}
+            {returned && entry.playbook !== null ? (
+              <ReturnedMark playbook={entry.playbook} returned={returned} />
             ) : null}
             <Badge variant="outline" size="sm">
               {entry.status ?? "No status"}

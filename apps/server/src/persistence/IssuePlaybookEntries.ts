@@ -99,6 +99,13 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
        * its playbook since the draft opened (jehhynes/t3code#93).
        */
       readonly orTriage?: boolean;
+      /**
+       * The id of the prompt message this start sends; the claim records it with the playbook,
+       * so the thread it starts is that playbook's (jehhynes/t3code#102).
+       */
+      readonly messageId: string;
+      /** The playbook whose prompt it sends, when not the entry's own, as a draft's. */
+      readonly startedWith?: string;
     }) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Queues or takes back a Start of the issue's entry while it waits with this playbook; answers
@@ -256,6 +263,11 @@ const make = Effect.gen(function* () {
           SET started_by = ${input.startedBy}, auto_tried = ${input.auto === true ? 1 : row.autoTried},
             start_queued = 0, snoozed_until = NULL
           WHERE issue_key = ${input.issueKey}
+        `;
+        yield* sql`
+          INSERT INTO issue_playbook_starts (message_id, issue_key, playbook)
+          VALUES (${input.messageId}, ${input.issueKey}, ${input.startedWith ?? row.playbook ?? input.playbook})
+          ON CONFLICT (message_id) DO NOTHING
         `;
         return true;
       },

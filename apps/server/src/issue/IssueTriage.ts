@@ -222,19 +222,22 @@ const make = Effect.gen(function* () {
       .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "issue-read", cause })));
     // An issue that returns after a thread that ran: activity up to that thread's first turn was
     // handled, and only a comment by someone other than me is newer activity (jehhynes/t3code#100).
-    const earlierAt = yield* threadLinks
+    const earlierWork = yield* threadLinks
       .earlierWork(issueThreadKey(entry))
       .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "threads", cause })));
-    let earlier: { readonly at: string; readonly nothingNew: boolean } | undefined;
-    if (earlierAt !== null) {
+    let earlier:
+      | { readonly at: string; readonly nothingNew: boolean; readonly playbook: string | null }
+      | undefined;
+    if (earlierWork !== null) {
       const tracker = trackers.get(IssueTrackerKind.make("github"));
       if (tracker === null) return yield* new IssueTriageFailure({ reason: "account" });
       const me = yield* tracker
         .getViewer({ cwd: config.cwd, host: entry.host })
         .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "account", cause })));
       earlier = {
-        at: earlierAt,
-        nothingNew: !newerActivity({ comments: detail.comments, me, since: earlierAt }),
+        at: earlierWork.at,
+        nothingNew: !newerActivity({ comments: detail.comments, me, since: earlierWork.at }),
+        playbook: earlierWork.playbook, // Fork-only (jehhynes/t3code#102)
       };
     }
     const current = yield* settings.getSettings.pipe(

@@ -172,9 +172,10 @@ describe("runMigrations", () => {
       assert.deepStrictEqual(yield* history, migrationManifest);
       const tables = yield* sql`
         SELECT name FROM sqlite_master
-        WHERE type = 'table' AND name IN ('issue_tracker_bindings', 'issue_board_sources')
-      `;
-      assert.strictEqual(tables.length, 2);
+        WHERE type = 'table'
+          AND name IN ('issue_tracker_bindings', 'issue_board_sources', 'issue_playbook_starts')
+      `; // Fork-only (jehhynes/t3code#102)
+      assert.strictEqual(tables.length, 3); // Fork-only (jehhynes/t3code#102)
 
       // A database from before #19 keeps its entries and gains the column.
       yield* sql`

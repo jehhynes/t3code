@@ -89,7 +89,8 @@ export function useIssueDraftStart() {
     placeLinkedPrompt(target, { text: draft.prompt, hiddenCharacters: 0 }, [], async () => {
       const result = await startOnSend({
         environmentId,
-        input: { playbook: entry.playbook, entry, threadId },
+        // The playbook the draft took is the one its thread counts for (jehhynes/t3code#102).
+        input: { playbook: entry.playbook, entry, threadId, ...(use === undefined ? {} : { use }) },
       });
       if (result._tag === "Failure") failedWith(result);
       return result._tag === "Success";

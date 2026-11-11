@@ -180,7 +180,9 @@ before the model answers, or you start it from a draft meanwhile, the answer cha
 
 An issue that has had a thread before, one that ran at least one turn, is classified on what is new
 since then. The model is also told when the first turn of the issue's latest such thread started,
-and that the activity up to then was handled, so older comments are background. Activity is a
+which playbook started that thread when T3 Code recorded it (see
+[Returned](#returned)), and that the activity up to then was handled, so older comments are
+background. Activity is a
 comment by anyone other than you, bots included; your own comments ask nothing of you. A thread that
 was created but never ran a turn does not count, and an issue with no earlier thread is classified
 as before.
@@ -270,6 +272,24 @@ leaves out leaves its selection only once T3 Code
 [confirms it is gone](issue-boards.md#when-an-issue-counts-as-gone). Starting needs the permission
 to run threads on that environment. When an issue leaves every selection,
 [its threads settle](#when-a-thread-settles).
+
+### Returned
+
+A waiting issue whose playbook already started threads for it shows a return mark with their number
+beside its playbook, under Waiting to start and under Snoozed. Hover it for how many and when the
+last of them started. It tells you the work came back, such as a pull request back from review or a
+fix that failed testing again, before you start it.
+
+- A thread counts when that playbook's prompt started it, by Start, Retry, starting by itself or a
+  draft you sent; a draft With another playbook counts for the playbook it took. For an issue a
+  [triage playbook](#let-a-classifier-choose) classified, the chosen playbook counts, so the mark
+  shows once it has chosen.
+- It must have run at least one turn and still be linked to the issue; settled and archived threads
+  count, deleted ones do not. A thread that another playbook, or you, started does not count, even
+  when this playbook's prompt was later sent to it.
+- Threads started before T3 Code recorded starting playbooks do not count.
+- Playbooks are matched by name, ignoring case: renaming a playbook in `playbooks.json` starts its
+  count again.
 
 ## Which folder a thread runs in
 

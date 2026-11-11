@@ -289,6 +289,18 @@ describe("reconcilePlaybookEntries", () => {
     });
     expect(waitingFields({ ...held, startedBy: started }, new Set()).nothingNewSince).toBeNull();
   });
+
+  it("counts the threads the waiting playbook started for the issue, only while it waits (jehhynes/t3code#102)", () => {
+    const fix = { count: 2, lastAt: earlier };
+    const returns = new Map([
+      ["fix", fix],
+      ["answer", { count: 1, lastAt: earlier }],
+    ]);
+    expect(waitingFields(row("1", "Fix", null), new Set(), returns).returned).toEqual(fix);
+    expect(waitingFields(row("1", "deploy", null), new Set(), returns).returned).toBeNull();
+    expect(waitingFields(row("1", "fix", started), new Set(), returns).returned).toBeNull();
+    expect(waitingFields(row("1", "fix", null), new Set()).returned).toBeNull();
+  });
 });
 
 describe("heldIn", () => {

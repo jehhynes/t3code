@@ -554,12 +554,21 @@ const make = Effect.gen(function* () {
         }),
     ),
   );
+  // Fork-only (jehhynes/t3code#102): one read per publish; the mark is left out when it fails.
+  const readReturns = threadLinks.returns.pipe(
+    Effect.catchCause((cause) =>
+      Effect.logWarning("The issues' earlier threads could not be read", { cause }).pipe(
+        Effect.as(new Map<string, ReadonlyMap<string, IssueThreadLinks.PlaybookReturns>>()),
+      ),
+    ),
+  );
   /** Each entry's open thread and the playbook it waits with, from the records as they are. */
   const withThreads = (
     boards: ReadonlyArray<IssueBoard>,
     open: ReadonlyMap<string, IssueThreadLinks.OpenIssueThread>,
     rows: ReadonlyMap<string, IssuePlaybookEntries.PlaybookEntryRow>,
     selfStarting: ReadonlySet<string>, // Fork-only (jehhynes/t3code#65)
+    returns: ReadonlyMap<string, ReadonlyMap<string, IssueThreadLinks.PlaybookReturns>>, // Fork-only (jehhynes/t3code#102)
   ): ReadonlyArray<IssueBoard> =>
     boards.map((candidate) => {
       const boardKey = IssueBoardSources.boardSourceKey(candidate);
@@ -573,7 +582,7 @@ const make = Effect.gen(function* () {
             ...entry,
             hasOpenThread: open.has(key),
             // Only on the board whose read decided it, so Start takes that board's fields.
-            ...waitingFields(row, selfStarting), // Fork-only (jehhynes/t3code#65)
+            ...waitingFields(row, selfStarting, returns.get(key)), // Fork-only (jehhynes/t3code#65, jehhynes/t3code#102)
           };
         }),
       };
@@ -649,9 +658,10 @@ const make = Effect.gen(function* () {
                 )
               : playbookEntries.list
           ).pipe(Effect.mapError(entriesError));
+      const returns = yield* readReturns; // Fork-only (jehhynes/t3code#102)
       const result: IssueBoardResult = {
-        // Fork-only (jehhynes/t3code#65): which waiting issues start by themselves.
-        boards: withThreads(boards, open, rows, selfStartingPlaybooks(playbooks)),
+        // Fork-only (jehhynes/t3code#65, jehhynes/t3code#102): which waiting issues start by themselves.
+        boards: withThreads(boards, open, rows, selfStartingPlaybooks(playbooks), returns),
         playbookErrors,
         playbooks: playbooks.map((playbook) => playbook.name),
         triagePlaybooks: playbooks.filter((p) => p.choices !== undefined).map((p) => p.name), // Fork-only (jehhynes/t3code#93)
@@ -703,9 +713,10 @@ const make = Effect.gen(function* () {
     const open = yield* readOpenThreads;
     const rows = yield* playbookEntries.list.pipe(Effect.mapError(entriesError));
     const { playbooks } = yield* readPlaybooks; // Fork-only (jehhynes/t3code#65)
+    const returns = yield* readReturns; // Fork-only (jehhynes/t3code#102): passed below
     yield* SubscriptionRef.set(latestBoard, {
       ...latest,
-      boards: withThreads(latest.boards, open, rows, selfStartingPlaybooks(playbooks)),
+      boards: withThreads(latest.boards, open, rows, selfStartingPlaybooks(playbooks), returns),
     });
   }).pipe(publishing.withPermits(1), Effect.withSpan("IssueService.refreshWaiting"));
 

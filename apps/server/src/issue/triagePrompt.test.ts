@@ -109,6 +109,19 @@ describe("buildTriagePrompt", () => {
       `${handled} No comment by anyone else came after, so nothing new asks for an action.\n`,
     );
     expect(prompt).not.toContain("Earlier work");
+    // Fork-only (jehhynes/t3code#102): the recorded playbook of the earlier thread is named.
+    expect(
+      buildTriagePrompt({
+        triage: { prompt: "Sort it." },
+        choices,
+        issue,
+        now: "2026-11-11T14:03:59.000Z",
+        frameId: "abc",
+        earlier: { at: "2026-11-10T08:05:09Z", nothingNew: false, playbook: "fix" },
+      }),
+    ).toContain(
+      "Earlier work: playbook fix started a thread for this issue at 2026-11-10 08:05:09 UTC, which handled the issue's text and every comment up to then, so they are background. Choose by what came after.\n",
+    );
   });
 });
 

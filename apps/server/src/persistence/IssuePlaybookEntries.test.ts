@@ -2,6 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as SqlClient from "effect/sql/SqlClient";
 
 import * as IssuePlaybookEntries from "./IssuePlaybookEntries.ts";
 import { runMigrations } from "./Migrations.ts";
@@ -10,6 +11,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
   Effect.gen(function* () {
     yield* runMigrations();
     yield* runMigrations();
+    const sql = yield* SqlClient.SqlClient;
     const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
     const issueKey = "github github.com acme/web 1";
     const entered = "2026-11-11T10:00:00.000Z";
@@ -46,10 +48,26 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       triage: null,
       nothingNewSince: null,
     });
-    const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
+    const first = {
+      issueKey,
+      playbook: "Develop",
+      startedBy: "issue-playbook:a",
+      messageId: "message-a",
+    };
+    // Fork-only (jehhynes/t3code#102): a claim records its prompt's playbook; a refused one does not.
+    const starts = sql<{ messageId: string; issueKey: string; playbook: string }>`
+      SELECT message_id AS "messageId", issue_key AS "issueKey", playbook
+      FROM issue_playbook_starts ORDER BY message_id
+    `;
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
+    assert.deepStrictEqual(yield* starts, []);
     assert.isTrue(yield* store.claim(first));
-    assert.isFalse(yield* store.claim({ ...first, startedBy: "issue-playbook:b" }));
+    assert.isFalse(
+      yield* store.claim({ ...first, startedBy: "issue-playbook:b", messageId: "message-b" }),
+    );
+    assert.deepStrictEqual(yield* starts, [
+      { messageId: "message-a", issueKey, playbook: "develop" },
+    ]);
     assert.strictEqual((yield* store.list).get(issueKey)?.startedBy, first.startedBy);
 
     // The issue leaves and comes back while the first Start is still running.
@@ -57,7 +75,12 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     yield* enter(null, leftAt);
     assert.strictEqual((yield* store.list).get(issueKey)?.leftAt, leftAt);
     yield* enter("develop");
-    const second = { issueKey, playbook: "develop", startedBy: "issue-playbook:c" };
+    const second = {
+      issueKey,
+      playbook: "develop",
+      startedBy: "issue-playbook:c",
+      messageId: "message-c",
+    };
     assert.isTrue(yield* store.claim(second));
     yield* store.release({ ...first, failure: "stale" });
     assert.deepInclude((yield* store.list).get(issueKey), {
@@ -77,6 +100,8 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     assert.isTrue(yield* store.claim(retry));
     yield* store.release({ ...retry, failure: "The link failed." });
     assert.strictEqual((yield* store.list).get(issueKey)?.startFailure, "The link failed.");
+    // A released start keeps its record: its prompt may still have reached a thread.
+    assert.deepInclude(yield* starts, { messageId: "message-c", issueKey, playbook: "develop" });
 
     // Names compare beyond ASCII, as selection compares them.
     yield* store.reconcile(() => [
@@ -96,7 +121,12 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       },
     ]);
     assert.isTrue(
-      yield* store.claim({ issueKey, playbook: "équipe", startedBy: "issue-playbook:d" }),
+      yield* store.claim({
+        issueKey,
+        playbook: "équipe",
+        startedBy: "issue-playbook:d",
+        messageId: "message-d",
+      }),
     );
 
     const unchanged = yield* store.reconcile(() => []);
@@ -109,6 +139,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       issueKey,
       playbook: "develop",
       startedBy: "issue-playbook:e",
+      messageId: "message-e",
       auto: true,
       selfStarting: true,
     };
@@ -116,7 +147,12 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
     assert.isTrue((yield* store.list).get(issueKey)?.autoTried);
     yield* store.release({ ...auto, failure: null });
     assert.isFalse(yield* store.claim({ ...auto, startedBy: "issue-playbook:f" }));
-    const manual = { issueKey, playbook: "develop", startedBy: "issue-playbook:g" };
+    const manual = {
+      issueKey,
+      playbook: "develop",
+      startedBy: "issue-playbook:g",
+      messageId: "message-g",
+    };
     assert.isTrue(yield* store.claim(manual));
     assert.deepStrictEqual((yield* store.list).get(issueKey), {
       issueKey,
@@ -221,6 +257,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
 it.effect("records a triage playbook's choice only for the entry it classified", () =>
   Effect.gen(function* () {
     yield* runMigrations();
+    const sql = yield* SqlClient.SqlClient;
     const store = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
     const issueKey = "github github.com acme/web 1";
     const entered = "2026-11-11T10:00:00.000Z";
@@ -257,7 +294,12 @@ it.effect("records a triage playbook's choice only for the entry it classified",
     // Once chosen, it is no longer classified, and Start claims it as the chosen playbook's.
     assert.isFalse(yield* store.setTriage({ ...outcome, chosen: "answer" }));
     assert.isFalse(
-      yield* store.claim({ issueKey, playbook: "triage", startedBy: "issue-playbook:a" }),
+      yield* store.claim({
+        issueKey,
+        playbook: "triage",
+        startedBy: "issue-playbook:a",
+        messageId: "message-a",
+      }),
     );
 
     // A dropped choice goes back to the triage playbook, unclassified.
@@ -274,7 +316,14 @@ it.effect("records a triage playbook's choice only for the entry it classified",
         playbook: "triage",
         startedBy: "issue-playbook-draft:t",
         orTriage: true,
+        messageId: "message-t",
+        startedWith: "answer",
       }),
+    );
+    // Fork-only (jehhynes/t3code#102): a draft records the playbook it took.
+    assert.deepStrictEqual(
+      yield* sql`SELECT playbook FROM issue_playbook_starts WHERE message_id = 'message-t'`,
+      [{ playbook: "answer" }],
     );
     assert.isFalse(yield* store.resetTriage(reset));
 
@@ -293,6 +342,7 @@ it.effect("records a triage playbook's choice only for the entry it classified",
         issueKey,
         playbook: "fix",
         startedBy: "issue-playbook:auto",
+        messageId: "message-auto",
         auto: true,
         selfStarting: true,
       }),

@@ -70,17 +70,32 @@ export function newerActivity(input: {
   );
 }
 
-/** What the classifier is told about the issue's earlier thread; no text anyone wrote. */
-function earlierWorkLines(earlier: { readonly at: string; readonly nothingNew: boolean }) {
+/**
+ * What the classifier is told about the issue's earlier thread; no text anyone wrote. The playbook
+ * name comes from T3 Code's own record of the start (jehhynes/t3code#102).
+ */
+function earlierWorkLines(earlier: EarlierWork) {
   const at = DateTime.formatIso(DateTime.makeUnsafe(earlier.at)).slice(0, 19).replace("T", " ");
+  const thread =
+    earlier.playbook == null
+      ? `a thread for this issue started at ${at} UTC and`
+      : `playbook ${earlier.playbook} started a thread for this issue at ${at} UTC, which`;
   return [
     "",
-    `Earlier work: a thread for this issue started at ${at} UTC and handled the issue's text and every comment up to then, so they are background. Choose by what came after.${
+    `Earlier work: ${thread} handled the issue's text and every comment up to then, so they are background. Choose by what came after.${
       earlier.nothingNew
         ? " No comment by anyone else came after, so nothing new asks for an action."
         : ""
     }`,
   ];
+}
+
+export interface EarlierWork {
+  /** A UTC ISO time. */
+  readonly at: string;
+  readonly nothingNew: boolean;
+  /** The playbook that started the thread, when recorded (jehhynes/t3code#102). */
+  readonly playbook?: string | null;
 }
 
 /**
@@ -98,7 +113,7 @@ export function buildTriagePrompt(input: {
    * When the first turn of the issue's latest thread that ran started, and whether no comment by
    * anyone else is newer (jehhynes/t3code#100); absent for an issue with no such thread.
    */
-  readonly earlier?: { readonly at: string; readonly nothingNew: boolean };
+  readonly earlier?: EarlierWork;
 }): string {
   const tag = `issue-data-${input.frameId}`;
   const frame = (text: string) => frameIssueText(text, tag);
