@@ -1,6 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { buildTriagePrompt, clip, matchChoice, triageInstructions } from "./triagePrompt.ts";
+import {
+  buildTriagePrompt,
+  clip,
+  matchChoice,
+  newerActivity,
+  triageInstructions,
+} from "./triagePrompt.ts";
 
 const choices = [
   { name: "answer", description: "A question someone wants answered" },
@@ -84,6 +90,70 @@ describe("buildTriagePrompt", () => {
       frameId: "abc",
     });
     expect(odd).toContain("URL: <issue-data-abc>https://example.com/42</issue-data-abc>");
+  });
+
+  it("tells a returning issue's classifier when earlier work handled its activity, and whether anything is newer (jehhynes/t3code#100)", () => {
+    const returning = (nothingNew: boolean) =>
+      buildTriagePrompt({
+        triage: { prompt: "Sort it." },
+        choices,
+        issue,
+        now: "2026-11-11T14:03:59.000Z",
+        frameId: "abc",
+        earlier: { at: "2026-11-10T08:05:09Z", nothingNew },
+      });
+    const handled =
+      "Current time: 2026-11-11 14:03 UTC\n\nEarlier work: a thread for this issue started at 2026-11-10 08:05:09 UTC and handled the issue's text and every comment up to then, so they are background. Choose by what came after.";
+    expect(returning(false)).toContain(`${handled}\n\nThe issue follows.`);
+    expect(returning(true)).toContain(
+      `${handled} No comment by anyone else came after, so nothing new asks for an action.\n`,
+    );
+    expect(prompt).not.toContain("Earlier work");
+  });
+});
+
+describe("newerActivity", () => {
+  const comment = (login: string | null, createdAt: string) => ({
+    author: login === null ? null : { login, name: null, avatarUrl: null },
+    createdAt,
+  });
+  const since = "2026-11-10T08:00:00.000Z";
+
+  it.each([
+    {
+      name: "my own newer comment, in any case",
+      comments: [comment("JessY", "2026-11-10T09:00:00Z")],
+      newer: false,
+    },
+    {
+      name: "someone else's older comment",
+      comments: [comment("ana", "2026-11-10T07:59:59Z")],
+      newer: false,
+    },
+    // "…08:00:00Z" sorts after "…08:00:00.000Z" as text, though it is the same instant.
+    {
+      name: "someone else's comment at the same instant",
+      comments: [comment("ana", "2026-11-10T08:00:00Z")],
+      newer: false,
+    },
+    {
+      name: "someone else's newer comment",
+      comments: [comment("ana", "2026-11-10T08:00:01Z")],
+      newer: true,
+    },
+    {
+      name: "a bot's newer comment",
+      comments: [comment("github-actions[bot]", "2026-11-11T00:00:00Z")],
+      newer: true,
+    },
+    {
+      name: "a deleted account's newer comment",
+      comments: [comment(null, "2026-11-11T00:00:00Z")],
+      newer: true,
+    },
+    { name: "no comment", comments: [], newer: false },
+  ])("counts $name as $newer", ({ comments, newer }) => {
+    expect(newerActivity({ comments, me: "jessy", since })).toBe(newer);
   });
 });
 

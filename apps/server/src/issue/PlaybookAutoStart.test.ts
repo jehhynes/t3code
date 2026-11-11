@@ -93,6 +93,7 @@ const row = (
   waitingSince: null,
   snoozedUntil: null,
   triage: null,
+  nothingNewSince: null,
   ...overrides,
 });
 

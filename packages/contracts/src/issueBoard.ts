@@ -94,6 +94,12 @@ export const IssueBoardEntry = Schema.Struct({
    * Absent from an older server.
    */
   triagedBy: Schema.optionalKey(Schema.NullOr(TrimmedNonEmptyString)),
+  /**
+   * When the first turn of the issue's earlier thread started, as a UTC ISO time, when the
+   * classifier found no comment by anyone else newer: the issue waits for Start
+   * (jehhynes/t3code#100). Absent from an older server.
+   */
+  nothingNewSince: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
 export type IssueBoardEntry = typeof IssueBoardEntry.Type;
 

@@ -456,7 +456,10 @@ const layerThreadIssueService = ThreadIssueService.layer.pipe(Layer.provide(laye
 // One instance, shared with the board timer, so Start and the timer see the same board reads.
 const layerPlaybookStartService = PlaybookStartService.layer.pipe(
   Layer.provideMerge(IssueTriage.layer), // Fork-only (jehhynes/t3code#93): shared with the board timer.
-  Layer.provide(Layer.merge(IssueThreadLinks.layer, IssuePlaybookEntries.layer)),
+  // Fork-only (jehhynes/t3code#100): the triage reads my GitHub account through the registry.
+  Layer.provide(
+    Layer.mergeAll(IssueThreadLinks.layer, IssuePlaybookEntries.layer, IssueTrackerRegistry.layer),
+  ),
   // Fork-only (jehhynes/t3code#44): the same instance ThreadLaunchService reads drafts from.
   Layer.provide(IssueWorktrees.layer),
   // Receipts tell a failed start whether its thread or prompt exists (jehhynes/t3code#23).

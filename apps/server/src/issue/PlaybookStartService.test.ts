@@ -285,6 +285,7 @@ function harness<A, E>(
           waitingSince: null,
           snoozedUntil: input.snoozedUntil ?? null,
           triage: null,
+          nothingNewSince: null,
         },
         ...(input.others ?? []).map((other) => ({
           issueKey: IssueThreadLinks.issueThreadKey(other),
@@ -298,6 +299,7 @@ function harness<A, E>(
           waitingSince: null,
           snoozedUntil: null,
           triage: null,
+          nothingNewSince: null,
         })),
       ]);
       const service = yield* PlaybookStartService.PlaybookStartService;

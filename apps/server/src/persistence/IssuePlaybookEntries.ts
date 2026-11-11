@@ -54,6 +54,12 @@ const PlaybookEntryRow = Schema.Struct({
    * (jehhynes/t3code#93). Until the choice, `playbook` is the triage playbook itself.
    */
   triage: Schema.NullOr(Schema.String),
+  /**
+   * When the first turn of the issue's earlier thread started, as a UTC ISO time, when the
+   * classifier found no comment by anyone else newer: the entry then waits for Start, its try
+   * used. Null otherwise; a new entry clears it (jehhynes/t3code#100).
+   */
+  nothingNewSince: Schema.NullOr(Schema.String),
 });
 export type PlaybookEntryRow = typeof PlaybookEntryRow.Type;
 
@@ -123,14 +129,17 @@ export class IssuePlaybookEntriesRepository extends Context.Service<
     /**
      * Records the classifier's outcome for the issue's entry while it still waits unclassified in
      * `triage` since `waitingSince`: the chosen playbook, or why it failed, or no failure (Retry).
-     * Answers whether it wrote (jehhynes/t3code#93).
+     * Answers whether it wrote. A choice with `nothingNewSince` waits for Start, its try used.
      */
     readonly setTriage: (
       input: {
         readonly issueKey: string;
         readonly triage: string;
         readonly waitingSince: string | null;
-      } & ({ readonly chosen: string } | { readonly failure: string | null }),
+      } & (
+        | { readonly chosen: string; readonly nothingNewSince?: string | null }
+        | { readonly failure: string | null }
+      ),
     ) => Effect.Effect<boolean, IssuePlaybookEntriesRepositoryError>;
     /**
      * Puts the issue's unstarted entry that `triage` chose `playbook` for back to waiting
@@ -164,7 +173,8 @@ const make = Effect.gen(function* () {
       SELECT issue_key AS "issueKey", board AS "board", playbook AS "playbook",
         started_by AS "startedBy", auto_tried AS "autoTried", start_failure AS "startFailure",
         left_at AS "leftAt", start_queued AS "startQueued", waiting_since AS "waitingSince",
-        snoozed_until AS "snoozedUntil", triage AS "triage"
+        snoozed_until AS "snoozedUntil", triage AS "triage",
+        nothing_new_since AS "nothingNewSince"
       FROM issue_playbook_entries
     `,
   });
@@ -184,12 +194,13 @@ const make = Effect.gen(function* () {
           yield* sql`
             INSERT INTO issue_playbook_entries (
               issue_key, board, playbook, started_by, auto_tried, start_failure, left_at,
-              start_queued, waiting_since, snoozed_until, triage
+              start_queued, waiting_since, snoozed_until, triage, nothing_new_since
             )
             VALUES (
               ${row.issueKey}, ${row.board}, ${row.playbook}, ${row.startedBy},
               ${row.autoTried ? 1 : 0}, ${row.startFailure}, ${row.leftAt},
-              ${row.startQueued ? 1 : 0}, ${row.waitingSince}, ${row.snoozedUntil}, ${row.triage}
+              ${row.startQueued ? 1 : 0}, ${row.waitingSince}, ${row.snoozedUntil}, ${row.triage},
+              ${row.nothingNewSince}
             )
             ON CONFLICT (issue_key) DO UPDATE SET
               board = excluded.board,
@@ -201,7 +212,8 @@ const make = Effect.gen(function* () {
               start_queued = excluded.start_queued,
               waiting_since = excluded.waiting_since,
               snoozed_until = excluded.snoozed_until,
-              triage = excluded.triage
+              triage = excluded.triage,
+              nothing_new_since = excluded.nothing_new_since
           `;
           next.set(row.issueKey, row);
         }
@@ -328,7 +340,10 @@ const make = Effect.gen(function* () {
         if ("chosen" in input) {
           yield* sql`
             UPDATE issue_playbook_entries
-            SET playbook = ${input.chosen}, triage = ${row.playbook}, start_failure = NULL
+            SET playbook = ${input.chosen}, triage = ${row.playbook}, start_failure = NULL,
+              nothing_new_since = ${input.nothingNewSince ?? null},
+              auto_tried = CASE WHEN ${input.nothingNewSince ?? null} IS NULL
+                THEN auto_tried ELSE 1 END
             WHERE issue_key = ${input.issueKey}
           `;
         } else {
@@ -366,7 +381,7 @@ const make = Effect.gen(function* () {
         yield* sql`
           UPDATE issue_playbook_entries
           SET playbook = ${row.triage}, triage = NULL, start_failure = NULL, start_queued = 0,
-            auto_tried = 0
+            auto_tried = 0, nothing_new_since = NULL
           WHERE issue_key = ${input.issueKey}
         `;
         return true;

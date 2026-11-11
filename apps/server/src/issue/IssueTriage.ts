@@ -1,5 +1,7 @@
-// Fork-only: a triage playbook's classifier picks each issue's playbook (jehhynes/t3code#93).
+// Fork-only: a triage playbook's classifier picks each issue's playbook (jehhynes/t3code#93), on
+// activity newer than the issue's earlier thread (jehhynes/t3code#100).
 import {
+  IssueTrackerKind,
   type IssueBoardEntry,
   type IssueBoardResult,
   type IssuePlaybook,
@@ -21,6 +23,7 @@ import * as Stream from "effect/Stream";
 
 import * as ServerConfig from "../config.ts";
 import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
+import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { issueThreadKey } from "../persistence/IssueThreadLinks.ts";
 import { hasClaudeManagedMcpConfig } from "../provider/Drivers/ClaudeHome.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -28,9 +31,10 @@ import { forkParked } from "../serverActivation.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGenerators from "../textGeneration/TextGenerators.ts";
 import * as IssueService from "./IssueService.ts";
+import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
 import { snoozedUntil } from "./playbookEntries.ts";
 import { PLAYBOOKS_FILE, readPlaybooksFile, triagePlaybookNamed } from "./playbookSelection.ts";
-import { buildTriagePrompt, matchChoice } from "./triagePrompt.ts";
+import { buildTriagePrompt, matchChoice, newerActivity } from "./triagePrompt.ts";
 
 /** At most this many classifications run at once, each a paid model call. */
 const CONCURRENT_CALLS = 2;
@@ -40,6 +44,8 @@ const FAILURE_TEXT = {
     "Choosing a playbook needs a Claude model or a text generator API: set modelSelection on the triage playbook to a Claude model.",
   settings: "The server settings could not be read, so no playbook was chosen.",
   "issue-read": "The issue could not be read from GitHub, so no playbook was chosen.",
+  threads: "The issue's earlier threads could not be read, so no playbook was chosen.",
+  account: "Your GitHub account could not be read, so no playbook was chosen.",
   timeout: "The classifier did not answer in time.",
   unlisted: "The classifier's answer named no listed playbook.",
   unanswered: "The classifier could not answer.",
@@ -167,6 +173,8 @@ const mapGenerationError = (error: TextGenerationError) =>
 const make = Effect.gen(function* () {
   const issues = yield* IssueService.IssueService;
   const entries = yield* IssuePlaybookEntries.IssuePlaybookEntriesRepository;
+  const threadLinks = yield* IssueThreadLinks.IssueThreadLinksRepository;
+  const trackers = yield* IssueTrackerRegistry.IssueTrackerRegistry;
   const settings = yield* ServerSettings.ServerSettingsService;
   const textGenerators = yield* TextGenerators.TextGenerators;
   const registry = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
@@ -212,6 +220,23 @@ const make = Effect.gen(function* () {
         key: entry.key,
       })
       .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "issue-read", cause })));
+    // An issue that returns after a thread that ran: activity up to that thread's first turn was
+    // handled, and only a comment by someone other than me is newer activity (jehhynes/t3code#100).
+    const earlierAt = yield* threadLinks
+      .earlierWork(issueThreadKey(entry))
+      .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "threads", cause })));
+    let earlier: { readonly at: string; readonly nothingNew: boolean } | undefined;
+    if (earlierAt !== null) {
+      const tracker = trackers.get(IssueTrackerKind.make("github"));
+      if (tracker === null) return yield* new IssueTriageFailure({ reason: "account" });
+      const me = yield* tracker
+        .getViewer({ cwd: config.cwd, host: entry.host })
+        .pipe(Effect.mapError((cause) => new IssueTriageFailure({ reason: "account", cause })));
+      earlier = {
+        at: earlierAt,
+        nothingNew: !newerActivity({ comments: detail.comments, me, since: earlierAt }),
+      };
+    }
     const current = yield* settings.getSettings.pipe(
       Effect.mapError((cause) => new IssueTriageFailure({ reason: "settings", cause })),
     );
@@ -238,13 +263,14 @@ const make = Effect.gen(function* () {
       },
       now: DateTime.formatIso(yield* DateTime.now),
       frameId: Buffer.from(yield* random.randomBytes(6)).toString("hex"),
+      ...(earlier === undefined ? {} : { earlier }),
     });
     const answer = yield* generation
       .generateTranscriptionPostProcessing({ cwd, prompt, modelSelection })
       .pipe(Effect.mapError(mapGenerationError));
     const chosen = matchChoice(answer.transcription, triage.choices ?? []);
     if (chosen === null) return yield* new IssueTriageFailure({ reason: "unlisted" });
-    return chosen;
+    return { chosen, nothingNewSince: earlier?.nothingNew === true ? earlier.at : null };
   }, Effect.scoped);
 
   const publish = issues.refreshWaiting.pipe(Effect.ignoreCause({ log: true }));
@@ -336,7 +362,7 @@ const make = Effect.gen(function* () {
     // The file may have changed during the call: the choice counts only if it is still offered.
     const reread = yield* readPlaybooks;
     const offered = triagePlaybookNamed(reread.playbooks, triage)?.choices ?? [];
-    const named = reread.errors.length === 0 ? matchChoice(outcome.success, offered) : null;
+    const named = reread.errors.length === 0 ? matchChoice(outcome.success.chosen, offered) : null;
     const chosen =
       reread.playbooks.find((playbook) => playbook.name.toLowerCase() === named?.toLowerCase())
         ?.name ?? null;
@@ -345,8 +371,9 @@ const make = Effect.gen(function* () {
       // Published, so the next pass classifies it under the file as it is now.
       return yield* publish;
     }
+    const { nothingNewSince } = outcome.success;
     const written = yield* entries
-      .setTriage({ issueKey, triage, waitingSince: latch.waitingSince, chosen })
+      .setTriage({ issueKey, triage, waitingSince: latch.waitingSince, chosen, nothingNewSince })
       .pipe(Effect.result);
     if (written._tag === "Failure") {
       const failure = new IssueTriageFailure({ reason: "unsaved", cause: written.failure });
@@ -359,6 +386,7 @@ const make = Effect.gen(function* () {
       issue: issueKey,
       triage,
       playbook: chosen,
+      nothingNew: nothingNewSince !== null,
     });
     yield* publish;
   });

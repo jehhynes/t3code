@@ -27,6 +27,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
           waitingSince: entered,
           snoozedUntil: null,
           triage: null,
+          nothingNewSince: null,
         },
       ]);
 
@@ -43,6 +44,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       waitingSince: entered,
       snoozedUntil: null,
       triage: null,
+      nothingNewSince: null,
     });
     const first = { issueKey, playbook: "Develop", startedBy: "issue-playbook:a" };
     assert.isFalse(yield* store.claim({ ...first, playbook: "ship" }));
@@ -90,6 +92,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
         waitingSince: null,
         snoozedUntil: null,
         triage: null,
+        nothingNewSince: null,
       },
     ]);
     assert.isTrue(
@@ -127,6 +130,7 @@ it.effect("starts an entry once, and a failed Start releases only its own claim"
       waitingSince: entered,
       snoozedUntil: null,
       triage: null,
+      nothingNewSince: null,
     });
     // Entering again is a new entry, not tried yet.
     yield* enter(null);
@@ -232,6 +236,7 @@ it.effect("records a triage playbook's choice only for the entry it classified",
       waitingSince: entered,
       snoozedUntil: null,
       triage: null,
+      nothingNewSince: null,
     };
     yield* store.reconcile(() => [waiting]);
     const outcome = { issueKey, triage: "Triage", waitingSince: entered };
@@ -272,6 +277,37 @@ it.effect("records a triage playbook's choice only for the entry it classified",
       }),
     );
     assert.isFalse(yield* store.resetTriage(reset));
+
+    // Fork-only (jehhynes/t3code#100): a choice with nothing new waits for Start, its try used; a
+    // reset of the choice classifies it again, untried and without the hold.
+    yield* store.reconcile(() => [waiting]);
+    const since = "2026-11-10T08:00:00.000Z";
+    assert.isTrue(yield* store.setTriage({ ...outcome, chosen: "fix", nothingNewSince: since }));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      playbook: "fix",
+      autoTried: true,
+      nothingNewSince: since,
+    });
+    assert.isFalse(
+      yield* store.claim({
+        issueKey,
+        playbook: "fix",
+        startedBy: "issue-playbook:auto",
+        auto: true,
+        selfStarting: true,
+      }),
+    );
+    assert.isTrue(yield* store.resetTriage(reset));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      autoTried: false,
+      nothingNewSince: null,
+    });
+    // Something new: chosen without the hold, its try untouched.
+    assert.isTrue(yield* store.setTriage({ ...outcome, chosen: "fix" }));
+    assert.deepInclude((yield* store.list).get(issueKey), {
+      autoTried: false,
+      nothingNewSince: null,
+    });
   }).pipe(
     Effect.provide(
       IssuePlaybookEntries.layer.pipe(

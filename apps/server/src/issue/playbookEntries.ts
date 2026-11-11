@@ -53,6 +53,7 @@ export function waitingFields(
       (playbook !== null && selfStarting.has(playbook.toLowerCase()) && row?.autoTried === false),
     snoozedUntil: playbook === null ? null : (row?.snoozedUntil ?? null),
     triagedBy: playbook === null ? null : (row?.triage ?? null), // Fork-only (jehhynes/t3code#93)
+    nothingNewSince: playbook === null ? null : (row?.nothingNewSince ?? null), // Fork-only (jehhynes/t3code#100)
   };
 }
 
@@ -187,6 +188,7 @@ export function reconcilePlaybookEntries(input: {
         waitingSince: input.now,
         snoozedUntil: null,
         triage: null,
+        nothingNewSince: null,
       });
     } else if (!deciding.has(row.board)) {
       continue;
@@ -204,6 +206,7 @@ export function reconcilePlaybookEntries(input: {
         waitingSince: nextWaitingSince(row, input.now),
         snoozedUntil: null,
         triage: null,
+        nothingNewSince: null,
       });
     } else if (row.board !== board) {
       writes.push({ ...row, board });
@@ -222,6 +225,7 @@ export function reconcilePlaybookEntries(input: {
         waitingSince: nextWaitingSince(row, input.now),
         snoozedUntil: null,
         triage: null,
+        nothingNewSince: null,
       });
     }
   }

@@ -70,6 +70,7 @@ const row = (
   waitingSince: string | null = now,
   snoozedUntil: string | null = null,
   triage: string | null = null,
+  nothingNewSince: string | null = null,
 ): PlaybookEntryRow => ({
   issueKey: key(number),
   board: boardKey,
@@ -82,6 +83,7 @@ const row = (
   waitingSince,
   snoozedUntil,
   triage,
+  nothingNewSince,
 });
 const justAfterNow = "2026-11-11T12:00:00.001Z";
 const failed = "The project has no default model.";
@@ -192,6 +194,16 @@ describe("reconcilePlaybookEntries", () => {
         row("2", null, null, "acme/1", false, null, now, false, now),
       ],
     },
+    // Fork-only (jehhynes/t3code#100)
+    {
+      name: "a classified issue held for nothing new keeps its hold, and loses it with its try once it leaves",
+      rows: [
+        row("1", "fix", null, "acme/1", true, null, null, false, earlier, null, "triage", earlier),
+        row("2", "fix", null, "acme/1", true, null, null, false, earlier, null, "triage", earlier),
+      ],
+      boards: [board(1, [entry("1", "triage"), entry("2", null)])],
+      writes: [row("2", null, null, "acme/1", false, null, now, false, now)],
+    },
   ])("$name", ({ rows, boards, writes }) => {
     expect(
       reconcilePlaybookEntries({
@@ -254,6 +266,28 @@ describe("reconcilePlaybookEntries", () => {
     expect(waitingFields(chosen, new Set()).triagedBy).toBe("triage");
     expect(waitingFields({ ...chosen, startedBy: started }, new Set()).triagedBy).toBeNull();
     expect(waitingFields(row("1", "triage", null), new Set()).triagedBy).toBeNull();
+  });
+
+  it("says a held returning issue has nothing new while it waits, and does not start it by itself (jehhynes/t3code#100)", () => {
+    const held = row(
+      "1",
+      "fix",
+      null,
+      "acme/1",
+      true,
+      null,
+      null,
+      false,
+      now,
+      null,
+      "triage",
+      earlier,
+    );
+    expect(waitingFields(held, new Set(["fix"]))).toMatchObject({
+      nothingNewSince: earlier,
+      startsBySelf: false,
+    });
+    expect(waitingFields({ ...held, startedBy: started }, new Set()).nothingNewSince).toBeNull();
   });
 });
 

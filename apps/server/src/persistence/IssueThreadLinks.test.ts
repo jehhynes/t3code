@@ -178,3 +178,83 @@ it.effect(
       ),
     ),
 );
+
+it.effect(
+  "answers when the first turn of the issue's latest thread that ran started (jehhynes/t3code#100)",
+  () =>
+    Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const at = "2026-11-10T00:00:00.000Z";
+      const fixtures: ReadonlyArray<{
+        readonly id: string;
+        /** Each run's `startedAt`; null for a run that never started. */
+        readonly runs: ReadonlyArray<string | null>;
+        readonly issue?: string;
+        readonly settled?: boolean;
+        readonly deleted?: boolean;
+      }> = [
+        { id: "first", runs: ["2026-11-10T01:00:00.000Z", "2026-11-10T09:00:00.000Z"] },
+        // Settled, and in another ISO form: its first turn is the latest.
+        {
+          id: "settled",
+          runs: ["2026-11-10T05:00:00Z", "2026-11-10T04:00:00.000Z"],
+          settled: true,
+        },
+        // Created but never ran a turn.
+        { id: "never-ran", runs: [null] },
+        { id: "no-runs", runs: [] },
+        { id: "deleted", runs: ["2026-11-10T08:00:00.000Z"], deleted: true },
+        { id: "other-issue", runs: ["2026-11-10T08:00:00.000Z"], issue: "7" },
+      ];
+      for (const fixture of fixtures) {
+        const payload = yield* encodePayload({
+          settledAt: fixture.settled ? at : null,
+          archivedAt: null,
+          issues: [
+            {
+              tracker: "github",
+              host: "GitHub.com",
+              scope: "Acme/Web",
+              key: fixture.issue ?? "6",
+              projectId: "project-1",
+              url: "https://github.com/acme/web/issues/6",
+              source: "manual",
+              linkedAt: at,
+              snapshot: null,
+            },
+          ],
+        });
+        yield* sql`
+        INSERT INTO orchestration_v2_projection_threads (
+          thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+          created_at, updated_at, archived_at, deleted_at, payload_json
+        ) VALUES (
+          ${fixture.id}, 'project-1', ${fixture.id}, 'codex', 'full-access', 'default',
+          ${at}, ${at}, NULL, ${fixture.deleted ? at : null}, ${payload}
+        )
+      `;
+        for (const [index, startedAt] of fixture.runs.entries()) {
+          const runPayload = yield* encodePayload({ startedAt });
+          yield* sql`
+          INSERT INTO orchestration_v2_projection_runs (
+            run_id, thread_id, ordinal, provider, provider_thread_id, status, requested_at,
+            completed_at, payload_json
+          ) VALUES (
+            ${`${fixture.id}-${index}`}, ${fixture.id}, ${index + 1}, 'codex', NULL,
+            ${startedAt === null ? "failed" : "completed"}, ${at}, NULL, ${runPayload}
+          )
+        `;
+        }
+      }
+      const links = yield* IssueThreadLinks.IssueThreadLinksRepository;
+
+      expect(yield* links.earlierWork("github github.com acme/web 6")).toBe(
+        "2026-11-10T04:00:00.000Z",
+      );
+      expect(yield* links.earlierWork("github github.com acme/web 8")).toBeNull();
+    }).pipe(
+      Effect.provide(
+        IssueThreadLinks.layer.pipe(Layer.provideMerge(SqlitePersistence.layerMemory)),
+      ),
+    ),
+);

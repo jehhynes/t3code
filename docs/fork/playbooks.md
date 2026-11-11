@@ -176,6 +176,23 @@ An issue whose repository has no T3 Code project is not classified until it has 
 issue is classified at the first board read after it wakes. When the issue leaves the selection
 before the model answers, or you start it from a draft meanwhile, the answer changes nothing.
 
+### When an issue comes back
+
+An issue that has had a thread before, one that ran at least one turn, is classified on what is new
+since then. The model is also told when the first turn of the issue's latest such thread started,
+and that the activity up to then was handled, so older comments are background. Activity is a
+comment by anyone other than you, bots included; your own comments ask nothing of you. A thread that
+was created but never ran a turn does not count, and an issue with no earlier thread is classified
+as before.
+
+When no comment by anyone else is newer than that thread, the model is also told that nothing new
+asks for an action. It still picks a playbook, but the issue waits for your Start even when that
+playbook has `autoStart`, and its row reads "Nothing is newer than its earlier thread"; hover it for
+when the earlier thread started. Start, Start with guidance and With another playbook work as on any
+waiting row. The next time the issue leaves and comes back, it is classified again, and when something
+new came in it starts or waits as its chosen playbook says. When your GitHub account cannot be read, an issue with an earlier
+thread is not classified: its row shows why, with **Retry**.
+
 ## Start an issue
 
 Above the boards, **Waiting to start** lists the board issues waiting for you to start them, each
@@ -403,6 +420,7 @@ with the Issues page closed and no client connected.
   its one start either.
 - While it is [snoozed](#snooze-an-issue), it does not start, and that does not use up its one start
   either.
+- An issue a [triage playbook](#when-an-issue-comes-back) found nothing new on waits for Start.
 
 ## Wait for blockers
 

@@ -1,7 +1,9 @@
-// Fork-only: which issues have an open thread (jehhynes/t3code#6, #7).
+// Fork-only: which issues have an open thread (jehhynes/t3code#6, #7), and their earlier work
+// (jehhynes/t3code#100).
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import type { ProjectId, ThreadId } from "@t3tools/contracts";
 import * as Context from "effect/Context";
+import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
@@ -51,6 +53,12 @@ export class IssueThreadLinksRepository extends Context.Service<
       issueKey: string,
       projectId: ProjectId,
     ) => Effect.Effect<IssueWorktree | null, PersistenceSqlError>;
+    /**
+     * When the first turn of the issue's latest thread that ran started, as a UTC ISO time: the
+     * latest of its threads' first started turns, settled and archived included, deleted not; null
+     * when none ran (jehhynes/t3code#100).
+     */
+    readonly earlierWork: (issueKey: string) => Effect.Effect<string | null, PersistenceSqlError>;
   }
 >()("t3/persistence/IssueThreadLinks/IssueThreadLinksRepository") {}
 
@@ -131,6 +139,44 @@ const make = Effect.gen(function* () {
       Effect.mapError(
         (cause) => new PersistenceSqlError({ operation: "latestIssueWorktree", cause }),
       ),
+    ),
+    earlierWork: Effect.fn("IssueThreadLinksRepository.earlierWork")(
+      function* (issueKey) {
+        const key = issueKey.split(" ").at(-1) ?? "";
+        const rows = yield* sql<{
+          threadId: string;
+          startedAt: string;
+          tracker: string;
+          host: string;
+          scope: string;
+          key: string;
+        }>`
+          SELECT t.thread_id AS "threadId",
+            json_extract(r.payload_json, '$.startedAt') AS "startedAt",
+            json_extract(link.value, '$.tracker') AS tracker,
+            json_extract(link.value, '$.host') AS host,
+            json_extract(link.value, '$.scope') AS scope,
+            json_extract(link.value, '$.key') AS key
+          FROM orchestration_v2_projection_threads AS t
+          JOIN json_each(t.payload_json, '$.issues') AS link
+          JOIN orchestration_v2_projection_runs AS r ON r.thread_id = t.thread_id
+          WHERE t.deleted_at IS NULL
+            AND trim(json_extract(link.value, '$.key')) = ${key}
+            AND json_extract(r.payload_json, '$.startedAt') IS NOT NULL
+        `.pipe(NodeSqliteClient.readOnly);
+        // Parsed, since stored times need not share one ISO form.
+        const firstTurns = new Map<string, number>();
+        for (const row of rows) {
+          if (issueThreadKey(row) !== issueKey) continue;
+          const startedAt = Date.parse(row.startedAt);
+          if (Number.isNaN(startedAt)) continue;
+          const first = firstTurns.get(row.threadId);
+          if (first === undefined || startedAt < first) firstTurns.set(row.threadId, startedAt);
+        }
+        if (firstTurns.size === 0) return null;
+        return DateTime.formatIso(DateTime.makeUnsafe(Math.max(...firstTurns.values())));
+      },
+      Effect.mapError((cause) => new PersistenceSqlError({ operation: "issueEarlierWork", cause })),
     ),
   });
 });

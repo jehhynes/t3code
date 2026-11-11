@@ -12,7 +12,7 @@ import { useNowMinute } from "~/hooks/useNowMinute";
 import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { issueEnvironment } from "~/state/issues";
-import { formatUpcomingTimestamp } from "~/timestampFormat";
+import { formatChatTimestampTooltip, formatUpcomingTimestamp } from "~/timestampFormat";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
@@ -196,6 +196,12 @@ function WaitingRow({
   const action = failure === null ? "Start" : "Retry";
   // Fork-only (jehhynes/t3code#93): a triage playbook's classifier holds no start of its own.
   const hold = issue.triage === null ? issue.hold : null;
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  // Fork-only (jehhynes/t3code#100): a returning issue with nothing new waits for Start.
+  const nothingNew =
+    issue.triage === null && hold !== "slot" && entry.nothingNewSince != null
+      ? `No comment by anyone else since its earlier thread started on ${formatChatTimestampTooltip(entry.nothingNewSince, timestampFormat)}, so it waits for Start.`
+      : null;
   const otherPlaybooksMenu =
     others.length === 0 ? null : (
       <MenuGroup>
@@ -218,8 +224,11 @@ function WaitingRow({
             ? "Choosing a playbook…"
             : hold === "slot"
               ? holdText(hold, entry.blockers)
-              : null
+              : nothingNew === null
+                ? null
+                : "Nothing is newer than its earlier thread"
         }
+        noteDetail={nothingNew}
       />
       {entry.projectId === null ? (
         <span className="shrink-0 text-xs text-muted-foreground">

@@ -26,13 +26,16 @@ import * as SubscriptionRef from "effect/SubscriptionRef";
 
 import * as ServerConfig from "../config.ts";
 import * as IssuePlaybookEntries from "../persistence/IssuePlaybookEntries.ts";
+import * as IssueThreadLinks from "../persistence/IssueThreadLinks.ts";
 import { PersistenceSqlError } from "../persistence/Errors.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as TextGenerators from "../textGeneration/TextGenerators.ts";
 import * as IssueService from "./IssueService.ts";
+import * as IssueTrackerRegistry from "./IssueTrackerRegistry.ts";
 import * as IssueTriage from "./IssueTriage.ts";
+import * as PlaybookAutoStart from "./PlaybookAutoStart.ts";
 
 const issueKey = (key: string) => `github github.com acme/web ${key}`;
 const entered = "2026-11-11T10:00:00.000Z";
@@ -89,6 +92,7 @@ const row = (
   waitingSince: entered,
   snoozedUntil: null,
   triage: null,
+  nothingNewSince: null,
   ...overrides,
 });
 
@@ -98,6 +102,9 @@ const playbooks: ReadonlyArray<IssuePlaybook> = [
   { name: "fix", rules: {}, prompt: "Fix.", description: "Something broken" },
   { name: "develop", rules: {}, prompt: "Develop." },
 ];
+
+/** When the first turn of a returning issue's earlier thread started (jehhynes/t3code#100). */
+const earlierThread = "2026-11-10T08:00:00.000Z";
 
 const claude: ModelSelection = {
   instanceId: ProviderInstanceId.make("claudeAgent"),
@@ -173,6 +180,15 @@ function harness<A, E>(
     readonly readFails?: boolean;
     /** Whether the model call dies with the model's text instead of answering. */
     readonly callDies?: boolean;
+    /**
+     * When the first turn of the issue's earlier thread started, or `fails` when the threads
+     * cannot be read; none when left out (jehhynes/t3code#100).
+     */
+    readonly earlierWork?: string | "fails";
+    /** The issue's comments, oldest first. */
+    readonly comments?: ReadonlyArray<{ readonly login: string | null; readonly at: string }>;
+    /** My GitHub login, or `fails` when it cannot be read. */
+    readonly viewer?: string | "fails";
   },
   body: (context: {
     readonly calls: Queue.Queue<Call>;
@@ -188,6 +204,8 @@ function harness<A, E>(
     readonly failWrites: Ref.Ref<boolean>;
     /** Each classification outcome the service tried to write. */
     readonly writes: Queue.Queue<void>;
+    /** How often my GitHub account was read. */
+    readonly viewerReads: Ref.Ref<number>;
   }) => Effect.Effect<A, E>,
 ) {
   return Effect.gen(function* () {
@@ -204,6 +222,7 @@ function harness<A, E>(
     const refreshed = yield* Queue.unbounded<void>();
     const latest = yield* SubscriptionRef.make<IssueBoardResult | null>(null);
     const failWrites = yield* Ref.make(false);
+    const viewerReads = yield* Ref.make(0);
     const store = Context.get(
       yield* Layer.build(
         IssuePlaybookEntries.layer.pipe(Layer.provide(SqlitePersistence.layerMemory)),
@@ -257,9 +276,42 @@ function harness<A, E>(
                 : Effect.succeed({
                     title: `Issue ${ref.key}`,
                     body: "It is broken.",
-                    comments: [],
+                    comments: (input.comments ?? []).map((comment, index) => ({
+                      id: `c${index}`,
+                      author:
+                        comment.login === null
+                          ? null
+                          : { login: comment.login, name: null, avatarUrl: null },
+                      body: `${hostile} comment ${index}`,
+                      createdAt: comment.at,
+                      url: null,
+                    })),
                   } as never),
           }),
+          Layer.mock(IssueThreadLinks.IssueThreadLinksRepository)({
+            earlierWork: () =>
+              input.earlierWork === "fails"
+                ? Effect.fail(new PersistenceSqlError({ operation: "test", cause: hostile }))
+                : Effect.succeed(input.earlierWork ?? null),
+          }),
+          Layer.succeed(
+            IssueTrackerRegistry.IssueTrackerRegistry,
+            IssueTrackerRegistry.fromTrackers([
+              {
+                kind: IssueTrackerKind.make("github"),
+                getViewer: () =>
+                  Ref.update(viewerReads, (count) => count + 1).pipe(
+                    Effect.andThen(
+                      input.viewer === "fails"
+                        ? Effect.fail(
+                            new IssueOperationError({ operation: "viewer", detail: hostile }),
+                          )
+                        : Effect.succeed(input.viewer ?? "jessy"),
+                    ),
+                  ),
+              } as never,
+            ]),
+          ),
           Layer.succeed(IssuePlaybookEntries.IssuePlaybookEntriesRepository, entries),
           ServerSettings.ServerSettingsService.layerTest({
             textGenerationModelSelection: input.model ?? claude,
@@ -304,6 +356,7 @@ function harness<A, E>(
             writePlaybooks,
             failWrites,
             writes,
+            viewerReads,
           }),
         ),
       ),
@@ -315,10 +368,13 @@ describe("IssueTriage", () => {
   it.effect("classifies an entering issue once, with the triage prompt, and keeps the choice", () =>
     harness(
       { listed: [entry("1")], rows: [row("1"), row("9")] },
-      ({ calls, refreshed, publish, stored }) =>
+      ({ calls, refreshed, publish, stored, viewerReads }) =>
         Effect.gen(function* () {
           yield* publish(result([entry("1")]));
           const call = yield* Queue.take(calls);
+          // No earlier thread: as before jehhynes/t3code#100, with no account read.
+          expect(call.prompt).not.toContain("Earlier work");
+          expect(yield* Ref.get(viewerReads)).toBe(0);
           // The text generation model in Settings, as it stores it.
           expect(call.modelSelection).toMatchObject(claude);
           expect(call.prompt).toContain(
@@ -331,6 +387,8 @@ describe("IssueTriage", () => {
             triage: "triage",
             startFailure: null,
             waitingSince: entered,
+            autoTried: false,
+            nothingNewSince: null,
           });
           // Later reads make no call.
           const chosen = entry("1", { waitingPlaybook: "fix", triagedBy: "triage" });
@@ -461,7 +519,8 @@ describe("IssueTriage", () => {
     "writes nothing for an answer that arrives after the issue left and came back, and keeps the new entry's call",
     () =>
       harness(
-        { listed: [], rows: [row("1"), row("9")] },
+        // A returning issue with nothing new, so each answer would hold it (jehhynes/t3code#100).
+        { listed: [], rows: [row("1"), row("9")], earlierWork: earlierThread },
         ({ calls, publish, entries, stored, refreshed }) =>
           Effect.gen(function* () {
             yield* publish(result([entry("1")]));
@@ -474,13 +533,22 @@ describe("IssueTriage", () => {
             const fresh = yield* nextCall(calls, "1");
             yield* Deferred.succeed(stale.answer, "fix");
             yield* Queue.take(refreshed);
-            expect((yield* stored("1"))?.triage).toBeNull();
+            expect(yield* stored("1")).toMatchObject({
+              triage: null,
+              autoTried: false,
+              nothingNewSince: null,
+            });
             // The earlier call left the new entry's call alone: no second call for it.
             yield* publish(result([entry("1"), entry("9")]));
             yield* nextCall(calls, "9");
             yield* Deferred.succeed(fresh.answer, "answer");
             yield* Queue.take(refreshed);
-            expect(yield* stored("1")).toMatchObject({ playbook: "answer", triage: "triage" });
+            expect(yield* stored("1")).toMatchObject({
+              playbook: "answer",
+              triage: "triage",
+              autoTried: true,
+              nothingNewSince: earlierThread,
+            });
           }),
       ),
   );
@@ -566,5 +634,95 @@ describe("IssueTriage", () => {
           expect((yield* Queue.takeAll(writes)).length).toBe(1);
         }),
     ),
+  );
+
+  // Fork-only (jehhynes/t3code#100)
+  it.effect.each([
+    {
+      name: "someone else's newer comment is new activity: chosen as its playbook says",
+      comments: [
+        { login: "jessy", at: "2026-11-09T00:00:00Z" },
+        { login: "ana", at: "2026-11-10T09:00:00Z" },
+      ],
+      held: false,
+    },
+    {
+      name: "a bot's newer comment is new activity",
+      comments: [{ login: "github-actions[bot]", at: "2026-11-10T09:00:00Z" }],
+      held: false,
+    },
+    {
+      name: "only my own newer comment and someone else's older one: held for Start, its try used",
+      comments: [
+        { login: "ana", at: "2026-11-10T07:00:00Z" },
+        { login: "JESSY", at: "2026-11-10T09:00:00Z" },
+      ],
+      held: true,
+    },
+    { name: "no comment: held for Start, its try used", comments: [], held: true },
+  ])(
+    "classifies a returning issue on activity newer than its earlier thread: $name",
+    ({ comments, held }) =>
+      harness(
+        { listed: [], rows: [row("1")], earlierWork: earlierThread, comments },
+        ({ calls, refreshed, publish, stored }) =>
+          Effect.gen(function* () {
+            yield* publish(result([entry("1")]));
+            const call = yield* Queue.take(calls);
+            const handled =
+              "Earlier work: a thread for this issue started at 2026-11-10 08:00:00 UTC and handled the issue's text and every comment up to then, so they are background. Choose by what came after.";
+            const nothingNew =
+              " No comment by anyone else came after, so nothing new asks for an action.";
+            expect(call.prompt).toContain(held ? `${handled}${nothingNew}\n` : `${handled}\n`);
+            yield* Deferred.succeed(call.answer, "answer");
+            yield* Queue.take(refreshed);
+            const chosen = yield* stored("1");
+            expect(chosen).toMatchObject({
+              playbook: "answer",
+              triage: "triage",
+              autoTried: held,
+              nothingNewSince: held ? earlierThread : null,
+            });
+            // `answer` starts by itself; a held issue is no longer one that does.
+            const waiting = entry("1", { waitingPlaybook: "answer", triagedBy: "triage" });
+            const starts = PlaybookAutoStart.autoStartEntries({
+              result: result([waiting]),
+              playbooks,
+              rows: new Map([[issueKey("1"), chosen!]]),
+              now: "2026-11-11T12:00:00.000Z",
+            });
+            expect(starts.length).toBe(held ? 0 : 1);
+          }),
+      ),
+  );
+
+  it.effect.each([
+    {
+      name: "my GitHub account",
+      earlierWork: earlierThread,
+      viewer: "fails",
+      cause: "Your GitHub account could not be read, so no playbook was chosen.",
+    },
+    {
+      name: "the issue's earlier threads",
+      earlierWork: "fails",
+      viewer: "jessy",
+      cause: "The issue's earlier threads could not be read, so no playbook was chosen.",
+    },
+  ])(
+    "records a fixed cause when $name cannot be read, with no model call",
+    ({ earlierWork, viewer, cause }) =>
+      harness(
+        { listed: [], rows: [row("1")], earlierWork, viewer },
+        ({ calls, refreshed, publish, stored }) =>
+          Effect.gen(function* () {
+            yield* publish(result([entry("1")]));
+            yield* Queue.take(refreshed);
+            const failed = yield* stored("1");
+            expect(failed).toMatchObject({ playbook: "triage", startFailure: cause });
+            expect(JSON.stringify(failed)).not.toContain(hostile);
+            expect(yield* Queue.size(calls)).toBe(0);
+          }),
+      ),
   );
 });

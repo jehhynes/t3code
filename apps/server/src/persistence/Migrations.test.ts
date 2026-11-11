@@ -186,6 +186,7 @@ describe("runMigrations", () => {
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN waiting_since`; // Fork-only (jehhynes/t3code#76)
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN snoozed_until`; // Fork-only (jehhynes/t3code#86)
       yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN triage`; // Fork-only (jehhynes/t3code#93)
+      yield* sql`ALTER TABLE issue_playbook_entries DROP COLUMN nothing_new_since`; // Fork-only (jehhynes/t3code#100)
       yield* runMigrations();
       yield* runMigrations();
       assert.deepStrictEqual(yield* history, migrationManifest);
@@ -193,10 +194,10 @@ describe("runMigrations", () => {
         yield* sql`
           SELECT playbook, auto_tried AS "autoTried", start_failure AS "startFailure",
             start_queued AS "startQueued", waiting_since AS "waitingSince",
-            snoozed_until AS "snoozedUntil", triage
+            snoozed_until AS "snoozedUntil", triage, nothing_new_since AS "nothingNewSince"
           FROM issue_playbook_entries
         `,
-        // Fork-only (jehhynes/t3code#65, #76, #86, #93)
+        // Fork-only (jehhynes/t3code#65, #76, #86, #93, jehhynes/t3code#100)
         [
           {
             playbook: "develop",
@@ -206,6 +207,7 @@ describe("runMigrations", () => {
             waitingSince: null,
             snoozedUntil: null,
             triage: null, // Fork-only (jehhynes/t3code#93)
+            nothingNewSince: null, // Fork-only (jehhynes/t3code#100)
           },
         ],
       );
