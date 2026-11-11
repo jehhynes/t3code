@@ -5,20 +5,28 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentId, IssueBoardResult } from "@t3tools/contracts";
-import { ChevronDownIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, ClockIcon, PlayIcon, RotateCcwIcon, XIcon } from "lucide-react";
 import { useState } from "react";
 
+import { useNowMinute } from "~/hooks/useNowMinute";
+import { useClientSettings } from "~/hooks/useSettings";
 import { cn } from "~/lib/utils";
 import { issueEnvironment } from "~/state/issues";
+import { formatUpcomingTimestamp } from "~/timestampFormat";
 import { useAtomCommand } from "~/state/use-atom-command";
 
+import { requestCustomSnooze } from "../CustomSnoozeDialog";
+import { useSnoozeWakeClock } from "../Sidebar.logic";
+import { pickSnoozePreset, resolveSnoozePresets } from "../Sidebar.snooze";
 import { Button } from "../ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "../ui/collapsible";
 import { Group, GroupSeparator } from "../ui/group";
 import {
   Menu,
   MenuGroup,
   MenuGroupLabel,
   MenuItem,
+  MenuItemDetail,
   MenuPopup,
   MenuSeparator,
   MenuTrigger,
@@ -29,6 +37,7 @@ import { BoardRowLines } from "./IssueBoardSection";
 import {
   type WaitingIssue,
   holdText,
+  isSnoozed,
   otherPlaybooks,
   waitingIssueKey,
   waitingIssues,
@@ -37,6 +46,129 @@ import { useIssueDraftStart } from "./useIssueDraftStart";
 
 const ROW_CLASS = cn(PULL_REQUEST_ROW_CLASS, "@container/issue-row-meta px-3 py-2.5");
 
+/** A thread snooze's choices for a waiting issue: the environment's presets, then Custom… (#86). */
+function IssueSnoozeMenu({
+  issue,
+  disabled,
+  onSnooze,
+}: {
+  issue: WaitingIssue;
+  disabled: boolean;
+  /** A UTC ISO time. */
+  onSnooze: (until: string) => void;
+}) {
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  const [open, setOpen] = useState(false);
+  const { environmentId } = issue;
+  const presets = open
+    ? // oxlint-disable-next-line react/purity -- Presets are resolved only while the menu is open, so each opening reads a fresh time.
+      resolveSnoozePresets(new Date(), timestampFormat, environmentId)
+    : [];
+  const label = `Snooze ${issue.entry.displayKey}`;
+  return (
+    <Menu open={open} onOpenChange={setOpen}>
+      <MenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="icon-xs"
+            disabled={disabled}
+            aria-label={label}
+            title={disabled ? "You cannot start threads here." : label}
+          />
+        }
+      >
+        <ClockIcon aria-hidden />
+      </MenuTrigger>
+      <MenuPopup align="end">
+        {presets.map((preset) => (
+          <MenuItem
+            key={preset.id}
+            onClick={() => {
+              const picked = pickSnoozePreset(presets, preset.id, timestampFormat, environmentId);
+              if (picked) onSnooze(picked.snoozedUntil);
+            }}
+          >
+            {preset.label}
+            <MenuItemDetail>{preset.whenLabel}</MenuItemDetail>
+          </MenuItem>
+        ))}
+        {presets.length > 0 ? <MenuSeparator /> : null}
+        <MenuItem
+          onClick={async () => {
+            const choice = await requestCustomSnooze();
+            if (choice) onSnooze(choice.snoozedUntil);
+          }}
+        >
+          Custom…
+        </MenuItem>
+      </MenuPopup>
+    </Menu>
+  );
+}
+
+function SnoozedRow({
+  issue,
+  environmentLabel,
+  busy,
+  onSnooze,
+  onCancel,
+}: {
+  issue: WaitingIssue;
+  environmentLabel: string | undefined;
+  busy: boolean;
+  /** A UTC ISO time to change the wake to, or null to wake it now. */
+  onSnooze: (until: string | null) => void;
+  /** Takes back a Start queued before the snooze, which otherwise runs once it wakes. */
+  onCancel: () => void;
+}) {
+  const canStart = useAtomValue(issueEnvironment.startPlaybook.permissionAtom(issue.environmentId));
+  const timestampFormat = useClientSettings((settings) => settings.timestampFormat);
+  // Ticks only while a Snoozed row shows, so "tomorrow" turns into "today" at midnight.
+  const nowMinute = useNowMinute();
+  const { entry } = issue;
+  return (
+    <div className={ROW_CLASS}>
+      <BoardRowLines
+        entry={entry}
+        failure={entry.startFailure ?? null}
+        note={
+          entry.snoozedUntil == null
+            ? null
+            : `Wakes ${formatUpcomingTimestamp(entry.snoozedUntil, timestampFormat, Date.parse(`${nowMinute}Z`))}`
+        }
+      />
+      {entry.startQueued === true ? (
+        <Button
+          variant="outline"
+          size="xs"
+          disabled={busy || !canStart}
+          title={canStart ? "Take back the queued start" : "You cannot start threads here."}
+          onClick={onCancel}
+        >
+          <XIcon aria-hidden />
+          Cancel start
+        </Button>
+      ) : null}
+      {entry.hasOpenThread ? null : (
+        <IssueSnoozeMenu issue={issue} disabled={busy || !canStart} onSnooze={onSnooze} />
+      )}
+      <Button
+        variant="outline"
+        size="xs"
+        disabled={busy || !canStart}
+        title={canStart ? "Wake it now" : "You cannot start threads here."}
+        onClick={() => onSnooze(null)}
+      >
+        Unsnooze
+      </Button>
+      {environmentLabel ? (
+        <span className="shrink-0 text-xs text-muted-foreground">{environmentLabel}</span>
+      ) : null}
+    </div>
+  );
+}
+
 function WaitingRow({
   issue,
   environmentLabel,
@@ -44,6 +176,7 @@ function WaitingRow({
   onStart,
   onCancel,
   onDraft,
+  onSnooze,
 }: {
   issue: WaitingIssue;
   environmentLabel: string | undefined;
@@ -53,6 +186,8 @@ function WaitingRow({
   onCancel: () => void;
   /** Opens a draft with the issue's own playbook, or with `use`. */
   onDraft: (use?: string) => void;
+  /** A UTC ISO time (jehhynes/t3code#86). */
+  onSnooze: (until: string) => void;
 }) {
   const canStart = useAtomValue(issueEnvironment.startPlaybook.permissionAtom(issue.environmentId));
   const { entry } = issue;
@@ -156,6 +291,10 @@ function WaitingRow({
           )}
         </Group>
       )}
+      {/* An issue with an open thread is snoozed by snoozing its thread. */}
+      {entry.hasOpenThread ? null : (
+        <IssueSnoozeMenu issue={issue} disabled={starting || !canStart} onSnooze={onSnooze} />
+      )}
       {environmentLabel ? (
         <span className="shrink-0 text-xs text-muted-foreground">{environmentLabel}</span>
       ) : null}
@@ -193,14 +332,19 @@ export function IssueStartList({
   if (stillHidden.length !== started.size) setStarted(new Map(stillHidden));
 
   const needle = query.toLowerCase();
-  const issues = waitingIssues(answers).filter(
+  const listed = waitingIssues(answers).filter(
     (issue) =>
       !started.has(waitingIssueKey(issue)) &&
       (needle.length === 0 ||
         issue.entry.title.toLowerCase().includes(needle) ||
         issue.entry.displayKey.toLowerCase().includes(needle)),
   );
-  if (issues.length === 0) return null;
+  // Fork-only (jehhynes/t3code#86): re-renders once at the earliest wake, with no timer when
+  // nothing is snoozed.
+  const nowMs = useSnoozeWakeClock(listed.map((issue) => issue.entry));
+  const issues = listed.filter((issue) => !isSnoozed(issue, nowMs));
+  const snoozed = listed.filter((issue) => isSnoozed(issue, nowMs));
+  if (listed.length === 0) return null;
 
   const start = async (issue: WaitingIssue) => {
     const key = waitingIssueKey(issue);
@@ -253,28 +397,80 @@ export function IssueStartList({
     });
   };
 
+  const snooze = async (issue: WaitingIssue, until: string | null) => {
+    const key = waitingIssueKey(issue);
+    setStarting((current) => new Set([...current, key]));
+    const result = await startPlaybook({
+      environmentId: issue.environmentId,
+      input: { playbook: issue.entry.playbook, snooze: issue.entry, until },
+    });
+    setStarting((current) => new Set([...current].filter((candidate) => candidate !== key)));
+    if (result._tag === "Success" || isAtomCommandInterrupted(result)) return;
+    const failure = squashAtomCommandFailure(result);
+    toastManager.add({
+      type: "error",
+      title: `Could not ${until === null ? "unsnooze" : "snooze"} ${issue.entry.displayKey}`,
+      description:
+        typeof failure === "object" && failure !== null && "detail" in failure
+          ? String(failure.detail)
+          : String(failure),
+    });
+  };
+
   return (
-    <section className="flex flex-col gap-1" aria-label="Waiting to start">
-      <h2 className="flex items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
-        <PlayIcon aria-hidden className="size-3.5" />
-        Waiting to start
-      </h2>
-      <div className="flex flex-col">
-        {issues.map((issue) => {
-          const key = waitingIssueKey(issue);
-          return (
-            <WaitingRow
-              key={key}
-              issue={issue}
-              environmentLabel={environmentLabels?.get(issue.environmentId)}
-              starting={starting.has(key)}
-              onStart={() => void start(issue)}
-              onCancel={() => void cancel(issue)}
-              onDraft={(use) => void openDraft(issue, use)}
-            />
-          );
-        })}
-      </div>
-    </section>
+    <>
+      {issues.length === 0 ? null : (
+        <section className="flex flex-col gap-1" aria-label="Waiting to start">
+          <h2 className="flex items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground">
+            <PlayIcon aria-hidden className="size-3.5" />
+            Waiting to start
+          </h2>
+          <div className="flex flex-col">
+            {issues.map((issue) => {
+              const key = waitingIssueKey(issue);
+              return (
+                <WaitingRow
+                  key={key}
+                  issue={issue}
+                  environmentLabel={environmentLabels?.get(issue.environmentId)}
+                  starting={starting.has(key)}
+                  onStart={() => void start(issue)}
+                  onCancel={() => void cancel(issue)}
+                  onDraft={(use) => void openDraft(issue, use)}
+                  onSnooze={(until) => void snooze(issue, until)}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {snoozed.length === 0 ? null : (
+        <Collapsible render={<section aria-label="Snoozed" />} className="flex flex-col gap-1">
+          <h2 className="px-3 text-xs font-medium text-muted-foreground">
+            <CollapsibleTrigger className="flex items-center gap-1.5 hover:text-foreground data-panel-open:[&_svg:last-child]:rotate-0">
+              <ClockIcon aria-hidden className="size-3.5" />
+              Snoozed
+              <span className="font-normal">{snoozed.length}</span>
+              <ChevronDownIcon aria-hidden className="size-3 -rotate-90" />
+            </CollapsibleTrigger>
+          </h2>
+          <CollapsiblePanel animate={false} className="flex flex-col">
+            {snoozed.map((issue) => {
+              const key = waitingIssueKey(issue);
+              return (
+                <SnoozedRow
+                  key={key}
+                  issue={issue}
+                  environmentLabel={environmentLabels?.get(issue.environmentId)}
+                  busy={starting.has(key)}
+                  onSnooze={(until) => void snooze(issue, until)}
+                  onCancel={() => void cancel(issue)}
+                />
+              );
+            })}
+          </CollapsiblePanel>
+        </Collapsible>
+      )}
+    </>
   );
 }

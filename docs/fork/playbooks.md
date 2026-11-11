@@ -325,6 +325,8 @@ with the Issues page closed and no client connected.
   start until a read shows none, and waiting does not use up its one start.
 - While [every slot is in use](#run-a-few-at-a-time), it waits for one, and waiting does not use up
   its one start either.
+- While it is [snoozed](#snooze-an-issue), it does not start, and that does not use up its one start
+  either.
 
 ## Wait for blockers
 
@@ -377,12 +379,34 @@ to the next start.
   from when you first pressed it. The queue survives a restart of T3 Code; a turn the restart ended
   holds no slot.
 - An issue with an open blocker on a board that waits for blockers starts only once its blocker has
-  closed and a slot is free.
+  closed and a slot is free. A [snoozed](#snooze-an-issue) issue waits for its wake as well.
 - To start one issue now, open the arrow beside its button and choose **Start with guidance…** or
   another playbook: a draft you send starts at once, whatever runs.
 - A message you send to an idle issue thread runs at once, so more threads than slots can run for a
   while; nothing is stopped to get back under the limit. Threads that agents or scheduled tasks
   start are not limited.
+
+## Snooze an issue
+
+To put off an issue that waits to start, such as until next week, press the clock beside its Start
+button under **Waiting to start** and choose a time: the same choices as a thread's snooze, your
+presets from Settings → Threads included, or **Custom…**. The issue moves to **Snoozed**, below
+Waiting to start, which is collapsed until you open it; each row shows when it wakes, in your own
+time zone. The snooze is kept by T3 Code, not written to GitHub, and holds across a reload and a
+restart.
+
+- While an issue is snoozed, nothing starts it: a playbook that starts by itself skips it without
+  using up its one start, and a Start you queued earlier, behind a blocker or a full slot, stays
+  queued; its Snoozed row keeps **Cancel start**. Start from another client starts nothing either.
+- At its wake time the issue is back under Waiting to start without a reload, and then starts or
+  waits as it would have; one that starts by itself, or was queued, starts at the next board read.
+- **Unsnooze** on its row puts it back at once, and the clock there changes the wake time; a new
+  snooze replaces the earlier one.
+- When the issue leaves every playbook's selection or moves to another playbook, its snooze is
+  dropped, as a queued start is. While its board is off, the snooze stays.
+- A draft you opened for the issue before you snoozed it still starts it when you send it.
+- An issue that has an open thread has no clock: snooze its thread instead.
+- Snoozing and unsnoozing need the permission to run threads, as Start does.
 
 ## Mistakes
 

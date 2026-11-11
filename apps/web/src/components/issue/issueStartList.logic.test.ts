@@ -6,7 +6,7 @@ import type {
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { otherPlaybooks, draftWorkspace, waitingIssues } from "./issueStartList.logic";
+import { otherPlaybooks, draftWorkspace, isSnoozed, waitingIssues } from "./issueStartList.logic";
 
 const env = "env-1" as EnvironmentId;
 
@@ -187,6 +187,37 @@ describe("hold", () => {
       ["2", "slot"],
       ["1", null],
     ]);
+  });
+});
+
+// Fork-only (jehhynes/t3code#86)
+describe("isSnoozed", () => {
+  it("holds a waiting issue until its wake, read as an instant", () => {
+    const wake = "2026-11-12T09:00:00.000Z";
+    const wakeMs = Date.parse(wake);
+    const issues = waitingIssues([
+      [
+        env,
+        {
+          playbookErrors: [],
+          boards: [
+            board(1, [
+              entry("1", { waitingPlaybook: "develop", snoozedUntil: wake }),
+              entry("2", { waitingPlaybook: "develop", snoozedUntil: "2026-11-12T04:00:00-05:00" }),
+              entry("3", { waitingPlaybook: "develop", snoozedUntil: null }),
+              entry("4", { waitingPlaybook: "develop" }),
+            ]),
+          ],
+        },
+      ],
+    ]);
+    const snoozed = (nowMs: number) =>
+      issues.filter((issue) => isSnoozed(issue, nowMs)).map((issue) => issue.entry.key);
+
+    expect(snoozed(wakeMs - 1)).toEqual(["2", "1"]);
+    // At the wake itself, and after it, it waits again.
+    expect(snoozed(wakeMs)).toEqual([]);
+    expect(snoozed(wakeMs + 60_000)).toEqual([]);
   });
 });
 

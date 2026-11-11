@@ -93,6 +93,15 @@ export function waitingIssues(
   );
 }
 
+/**
+ * Whether the issue is snoozed at `nowMs` (jehhynes/t3code#86); a wake that has passed no longer
+ * holds it, as the server decides from its own record.
+ */
+export function isSnoozed(issue: WaitingIssue, nowMs: number): boolean {
+  const { snoozedUntil } = issue.entry;
+  return snoozedUntil != null && Date.parse(snoozedUntil) > nowMs;
+}
+
 export function otherPlaybooks(issue: WaitingIssue): ReadonlyArray<string> {
   const own = issue.entry.playbook.toLowerCase();
   return (issue.playbooks ?? []).filter((name) => name.toLowerCase() !== own);
